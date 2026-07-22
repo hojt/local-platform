@@ -1,0 +1,28 @@
+version: "3"
+
+tasks:
+  cluster:create:
+    desc: Create the local kind cluster
+    cmds:
+      - ./scripts/cluster-create
+
+  cluster:delete:
+    desc: Delete the local kind cluster
+    cmds:
+      - ./scripts/cluster-delete
+
+  cluster:status:
+    desc: Show nodes and system pods
+    cmds:
+      - ./scripts/cluster-status
+
+  up:
+    desc: Create and inspect the local platform
+    cmds:
+      - task: cluster:create
+      - task: cluster:status
+
+  down:
+    desc: Delete the local platform
+    cmds:
+      - task: cluster:delete
