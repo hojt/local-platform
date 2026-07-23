@@ -11,10 +11,10 @@ Current responsibilities:
 - Devcontainer
 - kind cluster
 - Task automation
+- Local registry
 
 Future responsibilities:
 
-- Local registry
 - CI Pipeline (Tekton)
 - GitOps (Flux or ArgoCD)
 - Ingress
@@ -53,3 +53,9 @@ Inside the devcontainer
 `kind get clusters`
 
 `kubectl get nodes`
+
+```bash
+podman push \
+  --tls-verify=false \
+  localhost:5001/example-backend:0.1.0
+```

@@ -5,6 +5,7 @@ tasks:
     desc: Create the local kind cluster
     cmds:
       - ./scripts/cluster-create.sh
+      - task: registry:connect
 
   cluster:delete:
     desc: Delete the local kind cluster
@@ -16,9 +17,31 @@ tasks:
     cmds:
       - ./scripts/cluster-status.sh
 
+  registry:create:
+    desc: Create the local container registry
+    cmds:
+      - ./scripts/registry-create.sh
+
+  registry:delete:
+    desc: Delete the local container registry
+    cmds:
+      - ./scripts/registry-delete.sh
+
+  registry:status:
+    desc: Inspect the local container registry
+    cmds:
+      - ./scripts/registry-status.sh
+
+  registry:connect:
+    desc: Connect the local registry to the kind cluster
+    cmds:
+      - ./scripts/registry-connect.sh
+
   up:
     desc: Create and inspect the local platform
     cmds:
+      - task: registry:create
+      - task: registry:status
       - task: cluster:create
       - task: cluster:status
 
@@ -26,3 +49,10 @@ tasks:
     desc: Delete the local platform
     cmds:
       - task: cluster:delete
+      - task: registry:delete
+
+  status:
+    desc: Show local platform status
+    cmds:
+      - task: registry:status
+      - task: cluster:status

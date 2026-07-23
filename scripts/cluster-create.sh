@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly cluster_name="local"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${script_dir}/config.sh"
+
 readonly config_file="kind/cluster.yaml"
 
-if kind get clusters | grep -qx "${cluster_name}"; then
-  echo "Cluster '${cluster_name}' already exists."
+if kind get clusters | grep -qx "${CLUSTER_NAME}"; then
+  echo "Cluster '${CLUSTER_NAME}' already exists."
   exit 0
 fi
 
 kind create cluster \
-  --name "${cluster_name}" \
+  --name "${CLUSTER_NAME}" \
   --config "${config_file}"
 
-kubectl cluster-info --context "kind-${cluster_name}"
+kubectl cluster-info --context "kind-${CLUSTER_NAME}"
