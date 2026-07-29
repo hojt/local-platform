@@ -4,15 +4,44 @@ ARG TASK_VERSION=3.45.4
 ARG KIND_VERSION=0.32.0
 ARG KUBECTL_VERSION=1.35.0
 
+ARG USERNAME=developer
+ARG USER_UID=1000
+ARG USER_GID=${USER_UID}
+
+RUN groupadd --gid "${USER_GID}" "${USERNAME}" \
+    && useradd \
+        --uid "${USER_UID}" \
+        --gid "${USER_GID}" \
+        --create-home \
+        --shell /bin/bash \
+        "${USERNAME}"
+
+RUN mkdir -p \
+      "/home/${USERNAME}/.config/nvim" \
+      "/home/${USERNAME}/.kube" \
+      "/home/${USERNAME}/.local/share/nvim" \
+      "/home/${USERNAME}/.local/state/nvim" \
+      "/home/${USERNAME}/.cache/nvim" \
+    && chown -R "${USERNAME}:${USERNAME}" \
+      "/home/${USERNAME}/.config" \
+      "/home/${USERNAME}/.kube" \
+      "/home/${USERNAME}/.local" \
+      "/home/${USERNAME}/.cache"
+
 RUN dnf install -y \
         bash \
         ca-certificates \
         curl \
+        fd-find \
         findutils \
+        fzf \
         git \
+        neovim \
         podman \
         procps-ng \
+        ripgrep \
         tar \
+        unzip \
     && dnf clean all
 
 # Task
@@ -42,3 +71,5 @@ RUN curl --fail --location --silent --show-error \
     && kubectl version --client
 
 WORKDIR /workspace
+
+USER ${USERNAME}

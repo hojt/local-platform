@@ -13,11 +13,16 @@
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind",
     "source=${localEnv:XDG_RUNTIME_DIR}/podman/podman.sock,target=/run/podman/podman.sock,type=bind",
-    "source=${localEnv:HOME}/.kube,target=/root/.kube,type=bind"
+    "source=${localEnv:HOME}/.kube,target=/home/developer/.kube,type=bind",
+    "source=${localEnv:HOME}/.config/nvim,target=/home/developer/.config/nvim,type=bind",
+    "source=nvim-cache,target=/home/developer/.cache/nvim,type=volume",
+    "source=local-platform-nvim-data,target=/home/developer/.local/share/nvim,type=volume"
   ],
   "runArgs": [
     "--network=host",
     "--security-opt=label=disable"
   ],
-  "remoteUser": "root"
+  "remoteUser": "developer",
+  "containerUser": "developer",
+  "updateRemoteUserUID": true
 }

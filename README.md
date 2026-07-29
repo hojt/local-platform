@@ -30,6 +30,26 @@ Host:
 
 Everything else runs inside the devcontainer.
 
+```
+Host
+    │
+    ▼
+dev.sh
+    │
+    ▼
+Dev Container
+    │
+    ▼
+Task
+    │
+    ▼
+scripts/
+```
+
+## Develop
+
+`./dev.sh` - Starts a new tmux session (or reuses an existing) and builds/connects to devcontainer.
+
 ## Usage
 
 Build the devcontainer
