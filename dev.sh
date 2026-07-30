@@ -5,25 +5,48 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_name="$(basename -- "${repo_root}")"
 
-# Normalize tmux session name
+# Normalize the repository name for use as a tmux session name.
 session_name="$(printf '%s' "${repo_name}" | tr -c '[:alnum:]_-' '-')"
 
-podman_socket="${XDG_RUNTIME_DIR:-}/podman/podman.sock"
+mode="${1:-dev}"
+
+green=""
+red=""
+reset=""
+
+usage() {
+  printf 'Usage: %s [rebuild]\n' "${0}"
+}
+
+parse_arguments() {
+  if (($# > 1)); then
+    usage >&2
+    exit 2
+  fi
+
+  case "${mode}" in
+  dev | rebuild)
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    printf 'Unknown command: %s\n' "${mode}" >&2
+    usage >&2
+    exit 2
+    ;;
+  esac
+}
 
 init_colors() {
-  # Check if stdout has a TTY, meaning ANSI-color use is OK
+  # stdout has a TTY, so ANSI colors are safe to use.
   if [[ -t 1 ]]; then
     green=$'\033[32m'
     red=$'\033[31m'
     reset=$'\033[0m'
-  else
-    green=""
-    red=""
-    reset=""
   fi
 }
-
-check_failed=false
 
 check_passed() {
   printf '  %s✓%s %s\n' "${green}" "${reset}" "$1"
@@ -31,7 +54,7 @@ check_passed() {
 
 check_failed() {
   printf '  %s✗%s %s\n' "${red}" "${reset}" "$1" >&2
-  check_failed=true
+  return 1
 }
 
 check_command() {
@@ -55,34 +78,18 @@ check_file() {
   fi
 }
 
-verify_environment() {
-  echo "Verifying environment"
-  init_colors
-
-  check_command tmux
-  check_command podman
-  check_command devcontainer
-
-  check_file \
-    "${repo_root}/.devcontainer/devcontainer.json" \
-    ".devcontainer/devcontainer.json"
-
-  if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
-    check_passed "XDG_RUNTIME_DIR"
-  else
-    check_failed "XDG_RUNTIME_DIR"
-  fi
-
-  ensure_podman_socket
-
-  if [[ "${check_failed}" == true ]]; then
-    echo >&2
-    echo "Environment verification failed." >&2
-    exit 1
-  fi
-}
-
 ensure_podman_socket() {
+  local podman_socket
+
+  if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+    check_failed "XDG_RUNTIME_DIR"
+    return
+  fi
+
+  check_passed "XDG_RUNTIME_DIR"
+
+  podman_socket="${XDG_RUNTIME_DIR}/podman/podman.sock"
+
   if [[ -S "${podman_socket}" ]]; then
     check_passed "Podman socket"
     return
@@ -95,11 +102,34 @@ ensure_podman_socket() {
   if [[ -S "${podman_socket}" ]]; then
     check_passed "Podman socket"
   else
-    check_failed "Podman socket"
-    echo >&2
-    echo "Podman socket is unavailable: ${podman_socket}" >&2
-    exit 1
+    check_failed "Podman socket: ${podman_socket}"
   fi
+}
+
+verify_environment() {
+  local status=0
+
+  echo "Verifying environment"
+
+  init_colors
+
+  check_command tmux || status=1
+  check_command podman || status=1
+  check_command devcontainer || status=1
+
+  check_file \
+    "${repo_root}/.devcontainer/devcontainer.json" \
+    ".devcontainer/devcontainer.json" ||
+    status=1
+
+  ensure_podman_socket || status=1
+
+  if ((status != 0)); then
+    echo >&2
+    echo "Environment verification failed." >&2
+  fi
+
+  return "${status}"
 }
 
 open_troubleshooting_shell() {
@@ -119,15 +149,21 @@ open_troubleshooting_shell() {
 }
 
 enter_devcontainer() {
-  echo "Starting development container"
+  local -a up_arguments=(
+    --workspace-folder "${repo_root}"
+    --docker-path podman
+  )
 
   mkdir -p "${HOME}/.config/nvim"
 
-  if ! devcontainer up \
-    --remove-existing-container \
-    --workspace-folder "${repo_root}" \
-    --docker-path podman
-  then
+  if [[ "${mode}" == "rebuild" ]]; then
+    echo "Rebuilding development container"
+    up_arguments+=(--remove-existing-container)
+  else
+    echo "Starting development container"
+  fi
+
+  if ! devcontainer up "${up_arguments[@]}"; then
     open_troubleshooting_shell \
       "Failed to start development container"
   fi
@@ -139,8 +175,7 @@ enter_devcontainer() {
   if ! exec devcontainer exec \
     --workspace-folder "${repo_root}" \
     --docker-path podman \
-    bash --login
-  then
+    bash --login; then
     open_troubleshooting_shell \
       "Failed to enter development container"
   fi
@@ -152,7 +187,14 @@ start_tmux_session() {
     enter_devcontainer
   fi
 
-  # Reuse an existing repository session.
+  # A rebuild starts with a fresh repository-specific tmux session.
+  if [[ "${mode}" == "rebuild" ]] &&
+    tmux has-session -t "=${session_name}" 2>/dev/null; then
+    echo "Stopping existing tmux session: ${session_name}"
+    tmux kill-session -t "=${session_name}"
+  fi
+
+  # Reuse an existing repository session during normal startup.
   if tmux has-session -t "=${session_name}" 2>/dev/null; then
     if [[ -n "${TMUX:-}" ]]; then
       exec tmux switch-client -t "=${session_name}"
@@ -165,8 +207,9 @@ start_tmux_session() {
   local session_command
 
   printf -v session_command \
-    'DEV_SH_INSIDE_SESSION=1 %q' \
-    "${repo_root}/dev.sh"
+    'DEV_SH_INSIDE_SESSION=1 %q %q' \
+    "${repo_root}/dev.sh" \
+    "${mode}"
 
   if [[ -n "${TMUX:-}" ]]; then
     tmux new-session \
@@ -184,7 +227,12 @@ start_tmux_session() {
   fi
 }
 
-verify_environment
+parse_arguments "$@"
+
+if ! verify_environment; then
+  exit 1
+fi
+
 echo
 
 start_tmux_session
