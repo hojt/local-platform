@@ -37,6 +37,21 @@ tasks:
     cmds:
       - ./scripts/registry-connect.sh
 
+  argocd:install:
+    desc: Install Argo CD
+    cmds:
+      - ./scripts/argocd-install.sh
+
+  argocd:status:
+    desc: Show Argo CD status
+    cmds:
+      - ./scripts/argocd-status.sh
+
+  argocd:delete:
+    desc: Delete Argo CD
+    cmds:
+      - ./scripts/argocd-delete.sh
+
   up:
     desc: Create and inspect the local platform
     cmds:

@@ -12,11 +12,12 @@ Current responsibilities:
 - kind cluster
 - Task automation
 - Local registry
+- GitOps (ArgoCD)
 
 Future responsibilities:
 
 - CI Pipeline (Tekton)
-- GitOps (Flux or ArgoCD)
+- GitOps (Flux)
 - Ingress
 - Observability
 
