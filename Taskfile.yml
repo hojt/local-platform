@@ -55,27 +55,37 @@ tasks:
     cmds:
       - ./scripts/argocd-install.sh
 
-  argocd:status:
-    desc: Show Argo CD status
-    cmds:
-      - ./scripts/argocd-status.sh
-
   argocd:delete:
     desc: Delete Argo CD
     cmds:
       - ./scripts/argocd-delete.sh
 
+  argocd:status:
+    desc: Show Argo CD status
+    cmds:
+      - ./scripts/argocd-status.sh
+
+  argocd:refresh:
+    desc: Refresh all Argo CD applications
+    cmds:
+      - ./scripts/argocd-refresh.sh normal
+
+  argocd:refresh:hard:
+    desc: Hard refresh all Argo CD applications
+    cmds:
+      - ./scripts/argocd-refresh.sh hard
+
   up:
-    desc: Create and inspect the local platform
+    desc: Create the local platform
     cmds:
       - task: registry:create
-      - task: registry:status
       - task: cluster:create
-      - task: cluster:status
+      - task: argocd:install
 
   down:
     desc: Delete the local platform
     cmds:
+      - task: argocd:delete
       - task: cluster:delete
       - task: registry:delete
 
@@ -84,3 +94,4 @@ tasks:
     cmds:
       - task: registry:status
       - task: cluster:status
+      - task: argocd:status
