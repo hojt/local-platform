@@ -75,6 +75,31 @@ tasks:
     cmds:
       - ./scripts/argocd-refresh.sh hard
 
+  envoy:install:
+    desc: Install Envoy Gateway
+    cmds:
+      - ./scripts/envoy-install.sh
+
+  envoy:delete:
+    desc: Delete Envoy Gateway
+    cmds:
+      - ./scripts/envoy-delete.sh
+
+  envoy:status:
+    desc: Show Envoy Gateway status
+    cmds:
+      - ./scripts/envoy-status.sh
+
+  envoy:configure:
+    desc: Configure the local Envoy Gateway
+    cmds:
+      - ./scripts/envoy-configure.sh
+
+  envoy:forward:
+    desc: Forward the local Envoy Gateway to localhost
+    cmds:
+      - ./scripts/envoy-forward.sh
+
   up:
     desc: Create the local platform
     cmds:
