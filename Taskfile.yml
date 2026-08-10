@@ -37,6 +37,19 @@ tasks:
     cmds:
       - ./scripts/registry-connect.sh
 
+  registry:images:
+    desc: List images in the local registry
+    cmds:
+      - ./scripts/registry-images.sh
+
+  registry:tags:
+    desc: List tags for an image in the local registry
+    requires:
+      vars:
+        - IMAGE
+    cmds:
+      - ./scripts/registry-tags.sh "{{.IMAGE}}"
+
   argocd:install:
     desc: Install Argo CD
     cmds:
