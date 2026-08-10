@@ -106,10 +106,13 @@ tasks:
       - task: registry:create
       - task: cluster:create
       - task: argocd:install
+      - task: envoy:install
+      - task: envoy:configure
 
   down:
     desc: Delete the local platform
     cmds:
+      - task: envoy:delete
       - task: argocd:delete
       - task: cluster:delete
       - task: registry:delete
@@ -120,3 +123,4 @@ tasks:
       - task: registry:status
       - task: cluster:status
       - task: argocd:status
+      - task: envoy:status
