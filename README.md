@@ -12,6 +12,7 @@ Current platform capabilities include:
 * Kubernetes cluster
 * local container registry
 * GitOps
+* HTTP routing through Gateway API
 * task-based automation
 
 Current implementations include:
@@ -20,15 +21,26 @@ Current implementations include:
 * Kind for Kubernetes
 * Podman for container operations
 * Argo CD for GitOps
+* Envoy Gateway for Gateway API
 
 Future platform capabilities may include:
 
 * CI pipelines
-* ingress
+* externally reachable LoadBalancer services
+* TLS and certificate management
 * observability
 
-Alternative implementations, such as Flux for GitOps, may also be evaluated as
-the homelab evolves.
+Alternative implementations may also be evaluated as the homelab evolves.
+
+Examples include:
+
+* Flux for GitOps
+* Cilium for networking and Gateway API
+* cloud-provider-kind for local LoadBalancer integration
+* Ingress
+* Traefik
+* HAProxy
+* Istio
 
 Specific tools are generally treated as implementations of platform
 capabilities rather than permanent architectural choices.
@@ -78,31 +90,61 @@ Inside the Dev Container, bring up the local platform:
 task up
 ```
 
-The platform consists of:
+The platform currently consists of:
 
 ```text
 Local Container Registry
           │
           ▼
-    Kind Cluster
-          │
-          ▼
-       Argo CD
+     Kind Cluster
+       │      │
+       │      ├─────────────┐
+       ▼                    ▼
+    Argo CD            Envoy Gateway
+                            │
+                            ▼
+                      Gateway API
 ```
 
 Inspect the running platform:
 
 ```bash
+task status
+```
+
+Or inspect individual components:
+
+```bash
 task registry:status
 task cluster:status
 task argocd:status
+task envoy:status
 ```
 
 The desired state of workloads is maintained separately in
 `local-environments`.
 
-After Argo CD has been installed, bootstrap the Argo CD applications from that
-repository. From that point, workload changes are reconciled from Git.
+After the platform is running, bootstrap the Argo CD applications from that
+repository:
+
+```bash
+task argocd:bootstrap
+```
+
+From that point, workload changes are reconciled from Git.
+
+When host access to workloads through the Gateway API is needed, forward the
+local Envoy Gateway:
+
+```bash
+task envoy:forward
+```
+
+For example, `example-backend` can then be reached with:
+
+```bash
+curl http://localhost:8080/api/greeting
+```
 
 When finished, tear down the local platform:
 
@@ -122,7 +164,13 @@ The golden path is intentionally small:
 local-environments
     │
     ▼
-GitOps reconciliation
+Argo CD reconciliation
+    │
+    ▼
+Gateway API routing
+    │
+    ▼
+ workloads
     │
     ▼
  task down
@@ -196,10 +244,26 @@ The complete local platform can normally be managed through:
 
 ```bash
 task up
+task status
 task down
 ```
 
-`task up` provides the normal orchestration for bringing up the platform.
+`task up` currently brings up:
+
+```text
+registry
+   │
+   ▼
+cluster
+   │
+   ├──────────────┐
+   ▼              ▼
+Argo CD      Envoy Gateway
+                  │
+                  ▼
+             Gateway config
+```
+
 Individual components also expose lifecycle tasks for development,
 troubleshooting, and experimentation.
 
@@ -305,9 +369,9 @@ local-platform
   │
   ├── Kubernetes
   ├── Container Registry
-  └── Argo CD
+  ├── Argo CD
+  └── Gateway API
           │
-          │ reconciles
           ▼
 local-environments
           │
@@ -359,14 +423,110 @@ The initial Argo CD applications are bootstrapped from `local-environments`.
 After that bootstrap, normal workload changes are performed through Git and
 reconciled by Argo CD.
 
+## Gateway API
+
+The local platform uses Kubernetes Gateway API for north-south HTTP routing.
+
+Envoy Gateway is the initial Gateway API implementation.
+
+`local-platform` owns:
+
+* the Envoy Gateway controller
+* the `GatewayClass`
+* the shared `Gateway`
+
+Workload-specific routing is owned by `local-environments` and expressed using
+standard Gateway API resources such as `HTTPRoute`.
+
+The responsibility boundary is:
+
+```text
+local-platform
+        │
+        ├── Envoy Gateway controller
+        ├── GatewayClass
+        └── Gateway
+                 │
+                 ▼
+local-environments
+        │
+        └── HTTPRoute
+                 │
+                 ▼
+              Service
+                 │
+                 ▼
+              Workload
+```
+
+Keeping workload routes based on the standard Gateway API makes it possible to
+experiment with alternative Gateway API implementations in the future without
+necessarily changing application routing manifests.
+
+### Envoy Gateway
+
+Install Envoy Gateway and the Gateway API CRDs:
+
+```bash
+task envoy:install
+```
+
+Configure the local `GatewayClass` and `Gateway`:
+
+```bash
+task envoy:configure
+```
+
+Show Envoy Gateway status:
+
+```bash
+task envoy:status
+```
+
+Forward the local Gateway to the developer host:
+
+```bash
+task envoy:forward
+```
+
+The current local access method uses port forwarding because the Kind cluster
+does not yet provide an external address for `LoadBalancer` services.
+
+While the forward is running, workloads exposed through `HTTPRoute` can be
+reached through:
+
+```text
+http://localhost:8080
+```
+
+For example:
+
+```bash
+curl http://localhost:8080/api/greeting
+```
+
+Delete Envoy Gateway:
+
+```bash
+task envoy:delete
+```
+
+A more complete local LoadBalancer solution is intentionally left for a future
+increment. Possible approaches include `cloud-provider-kind` or other
+Kubernetes networking implementations.
+
 ## Repository Structure
 
 ```text
 .
 ├── .devcontainer/
-│   └── ...
+├── manifests/
+│   └── gateway/
+│       └── envoy/
+│           ├── gatewayclass.yaml
+│           ├── gateway.yaml
+│           └── kustomization.yaml
 ├── scripts/
-│   └── ...
 ├── Taskfile.yaml
 ├── dev.sh
 └── README.md
@@ -376,11 +536,16 @@ The main entrypoints are deliberately few:
 
 * `dev.sh` manages the developer environment.
 * `Taskfile.yaml` exposes the operator-facing commands.
-* `scripts/` contains the implementation behind those tasks.
+* `scripts/` contains reusable and non-trivial platform automation.
+* `manifests/` contains declarative platform configuration owned by this
+  repository.
 * `.devcontainer/` defines the repository development environment.
 
-Task provides the user-facing interface while shell scripts contain the
-underlying platform automation.
+Task provides the user-facing interface.
+
+Reusable or non-trivial automation is implemented as shell scripts under
+`scripts/`. Simple commands may be kept directly in the Taskfile when doing so
+keeps the underlying operation visible and easy to understand.
 
 ## Design Principles
 
@@ -394,10 +559,13 @@ In particular:
 * expose common operations through Task
 * keep repository responsibilities explicit
 * prefer open and portable technologies
+* prefer standard APIs where practical
 * evolve the platform incrementally
 * avoid abstractions before they solve a concrete problem
 
-`local-platform` owns the platform itself. Application source code belongs in
-application repositories, while desired environment state belongs in
+`local-platform` owns the platform itself.
+
+Application source code belongs in application repositories, while desired
+environment state and workload-specific routing belong in
 `local-environments`.
 
