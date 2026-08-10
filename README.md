@@ -6,77 +6,398 @@ Infrastructure for the local development platform.
 
 This repository owns the local Kubernetes platform used during development.
 
-Current responsibilities:
+Current platform capabilities include:
 
-- Devcontainer
-- kind cluster
-- Task automation
-- Local registry
-- GitOps (ArgoCD)
+* containerized development environment
+* Kubernetes cluster
+* local container registry
+* GitOps
+* task-based automation
 
-Future responsibilities:
+Current implementations include:
 
-- CI Pipeline (Tekton)
-- GitOps (Flux)
-- Ingress
-- Observability
+* Dev Containers for the development environment
+* Kind for Kubernetes
+* Podman for container operations
+* Argo CD for GitOps
+
+Future platform capabilities may include:
+
+* CI pipelines
+* ingress
+* observability
+
+Alternative implementations, such as Flux for GitOps, may also be evaluated as
+the homelab evolves.
+
+Specific tools are generally treated as implementations of platform
+capabilities rather than permanent architectural choices.
 
 ## Prerequisites
 
-Host:
+The developer host is intentionally kept lightweight.
 
-- Fedora Atomic
-- Podman
-- DevContainer CLI
+Required on the host:
 
-Everything else runs inside the devcontainer.
+* Fedora Atomic
+* Podman
+* Dev Container CLI
+* tmux
+* Git
+* terminal and editor of choice
 
-```
+Repository-specific tooling runs inside the Dev Container.
+
+```text
 Host
-    │
-    ▼
+  │
+  ▼
 dev.sh
-    │
-    ▼
+  │
+  ▼
 Dev Container
-    │
-    ▼
+  │
+  ▼
 Task
-    │
-    ▼
+  │
+  ▼
 scripts/
 ```
 
-## Develop
+## Golden Path
 
-`./dev.sh` - Starts a new tmux session (or reuses an existing) and builds/connects to devcontainer.
+Start or reconnect to the development environment:
 
-## Usage
+```bash
+./dev.sh
+```
 
-Build the devcontainer
+Inside the Dev Container, bring up the local platform:
 
-`devcontainer build --workspace-folder . --docker-path podman`
+```bash
+task up
+```
 
-Start it
+The platform consists of:
 
-`devcontainer up --workspace-folder . --docker-path podman`
+```text
+Local Container Registry
+          │
+          ▼
+    Kind Cluster
+          │
+          ▼
+       Argo CD
+```
 
-Open a shell inside the devcontainer
+Inspect the running platform:
 
-`devcontainer exec --workspace-folder . --docker-path podman bash`
+```bash
+task registry:status
+task cluster:status
+task argocd:status
+```
 
-Inside the devcontainer
+The desired state of workloads is maintained separately in
+`local-environments`.
 
-`task cluster:create`
-`task cluster:status`
-`task cluster:delete`
+After Argo CD has been installed, bootstrap the Argo CD applications from that
+repository. From that point, workload changes are reconciled from Git.
 
-`kind get clusters`
+When finished, tear down the local platform:
 
-`kubectl get nodes`
+```bash
+task down
+```
+
+The golden path is intentionally small:
+
+```text
+./dev.sh
+    │
+    ▼
+ task up
+    │
+    ▼
+local-environments
+    │
+    ▼
+GitOps reconciliation
+    │
+    ▼
+ task down
+```
+
+## Development Environment
+
+`dev.sh` is the normal entrypoint for working with this repository.
+
+Start a new repository-specific tmux session, or reconnect to an existing one:
+
+```bash
+./dev.sh
+```
+
+Rebuild the Dev Container when its definition has changed:
+
+```bash
+./dev.sh rebuild
+```
+
+`dev.sh` verifies host prerequisites, starts or reuses the repository-specific
+tmux session, starts the Dev Container, and opens a shell inside it.
+
+Most repository operations are exposed through Task:
+
+```bash
+task --list
+```
+
+### Dev Container
+
+The Dev Container provides the tooling required to develop and operate the
+local platform.
+
+The normal entrypoint is `./dev.sh`, but the Dev Container can also be operated
+manually.
+
+Build the Dev Container:
+
+```bash
+devcontainer build \
+  --workspace-folder . \
+  --docker-path podman
+```
+
+Start it:
+
+```bash
+devcontainer up \
+  --workspace-folder . \
+  --docker-path podman
+```
+
+Open a shell inside it:
+
+```bash
+devcontainer exec \
+  --workspace-folder . \
+  --docker-path podman \
+  bash
+```
+
+Personal developer configuration remains outside the repository where
+practical. Selected host configuration, such as Git and editor configuration,
+may be mounted into the Dev Container.
+
+## Platform Lifecycle
+
+The complete local platform can normally be managed through:
+
+```bash
+task up
+task down
+```
+
+`task up` provides the normal orchestration for bringing up the platform.
+Individual components also expose lifecycle tasks for development,
+troubleshooting, and experimentation.
+
+This separation keeps the common workflow simple while still allowing each
+platform component to be operated independently.
+
+## Kubernetes
+
+The local platform currently uses Kind to provide Kubernetes.
+
+The Kubernetes cluster lifecycle is owned by `local-platform`. Kind is the
+current implementation and may be replaced or complemented by other Kubernetes
+distributions as the homelab evolves.
+
+Create the cluster:
+
+```bash
+task cluster:create
+```
+
+Show cluster status:
+
+```bash
+task cluster:status
+```
+
+Delete the cluster:
+
+```bash
+task cluster:delete
+```
+
+Useful direct inspection commands include:
+
+```bash
+kind get clusters
+kubectl get nodes
+```
+
+## Local Container Registry
+
+The platform provides a local OCI registry used by workloads running in the
+Kind cluster.
+
+Application repositories are responsible for building and publishing their
+container images. `local-platform` provides and operates the registry.
+
+Create the registry:
+
+```bash
+task registry:create
+```
+
+Show registry status:
+
+```bash
+task registry:status
+```
+
+List repositories currently published to the registry:
+
+```bash
+task registry:images
+```
+
+List available tags for an image:
+
+```bash
+task registry:tags IMAGE=example-backend
+```
+
+For example:
+
+```text
+{"name":"example-backend","tags":["0.2.0"]}
+```
+
+Delete the registry:
+
+```bash
+task registry:delete
+```
+
+An image can also be pushed manually:
 
 ```bash
 podman push \
   --tls-verify=false \
-  localhost:5001/example-backend:0.1.0
+  localhost:5001/example-backend:0.2.0
 ```
+
+## GitOps
+
+The local platform includes Argo CD as the initial GitOps engine.
+
+Argo CD is installed and operated by `local-platform`, while the desired state
+of workloads is maintained separately in the `local-environments` repository.
+
+The responsibility boundary is intentionally explicit:
+
+```text
+local-platform
+  │
+  ├── Kubernetes
+  ├── Container Registry
+  └── Argo CD
+          │
+          │ reconciles
+          ▼
+local-environments
+          │
+          │ desired state
+          ▼
+     Workloads
+```
+
+The GitOps engine itself is considered an implementation detail. The
+architecture allows alternative GitOps tools, such as Flux, to be evaluated
+alongside or instead of Argo CD in the future.
+
+### Argo CD
+
+Install Argo CD:
+
+```bash
+task argocd:install
+```
+
+Show its current status:
+
+```bash
+task argocd:status
+```
+
+Refresh Argo CD applications:
+
+```bash
+task argocd:refresh
+```
+
+Force a hard refresh, including cached manifests:
+
+```bash
+task argocd:refresh:hard
+```
+
+Delete Argo CD:
+
+```bash
+task argocd:delete
+```
+
+Application definitions and environment state are intentionally not maintained
+in this repository.
+
+The initial Argo CD applications are bootstrapped from `local-environments`.
+After that bootstrap, normal workload changes are performed through Git and
+reconciled by Argo CD.
+
+## Repository Structure
+
+```text
+.
+├── .devcontainer/
+│   └── ...
+├── scripts/
+│   └── ...
+├── Taskfile.yaml
+├── dev.sh
+└── README.md
+```
+
+The main entrypoints are deliberately few:
+
+* `dev.sh` manages the developer environment.
+* `Taskfile.yaml` exposes the operator-facing commands.
+* `scripts/` contains the implementation behind those tasks.
+* `.devcontainer/` defines the repository development environment.
+
+Task provides the user-facing interface while shell scripts contain the
+underlying platform automation.
+
+## Design Principles
+
+The repository follows the broader design principles and architecture decisions
+documented in the `homelab` repository.
+
+In particular:
+
+* keep the developer host lightweight
+* prefer reproducible environments
+* expose common operations through Task
+* keep repository responsibilities explicit
+* prefer open and portable technologies
+* evolve the platform incrementally
+* avoid abstractions before they solve a concrete problem
+
+`local-platform` owns the platform itself. Application source code belongs in
+application repositories, while desired environment state belongs in
+`local-environments`.
+
