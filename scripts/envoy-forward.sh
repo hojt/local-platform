@@ -3,7 +3,6 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-
 source "${script_dir}/config.sh"
 
 service_name="$(
@@ -20,11 +19,14 @@ if [[ -z "${service_name}" ]]; then
   exit 1
 fi
 
-echo "Forwarding ${ENVOY_GATEWAY_NAME} to http://localhost:${ENVOY_GATEWAY_LOCAL_PORT}"
+echo "Forwarding ${ENVOY_GATEWAY_NAME}"
+echo "  HTTP:  http://localhost:${ENVOY_GATEWAY_LOCAL_PORT}"
+echo "  HTTPS: https://localhost:${ENVOY_GATEWAY_LOCAL_HTTPS_PORT}"
 
 kubectl \
   --context "${KUBE_CONTEXT}" \
   --namespace "${ENVOY_GATEWAY_NAMESPACE}" \
   port-forward \
   "service/${service_name}" \
-  "${ENVOY_GATEWAY_LOCAL_PORT}:80"
+  "${ENVOY_GATEWAY_LOCAL_PORT}:80" \
+  "${ENVOY_GATEWAY_LOCAL_HTTPS_PORT}:443"

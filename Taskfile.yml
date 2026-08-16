@@ -99,27 +99,53 @@ tasks:
     cmds:
       - ./scripts/envoy-forward.sh
 
+  cert-manager:install:
+    desc: Install cert-manager
+    cmds:
+      - ./scripts/cert-manager-install.sh
+
+  cert-manager:status:
+    desc: Show cert-manager status
+    cmds:
+      - ./scripts/cert-manager-status.sh
+
+  cert-manager:delete:
+    desc: Delete cert-manager
+    cmds:
+      - ./scripts/cert-manager-delete.sh
+
+  cert-manager:configure:
+    desc: Configure cert-manager
+    cmds:
+      - ./scripts/cert-manager-configure.sh
+
   up:
     desc: Create the local platform
     cmds:
       - task: registry:create
       - task: registry:status
-
+      # ---
       - task: cluster:create
       - task: cluster:status
-
+      # ---
       - task: registry:connect
-
+      # ---
       - task: argocd:install
       - task: argocd:status
-
+      # ---
       - task: envoy:install
+      # ---
+      - task: cert-manager:install
+      - task: cert-manager:configure
+      - task: cert-manager:status
+      # ---
       - task: envoy:configure
       - task: envoy:status
 
   down:
     desc: Delete the local platform
     cmds:
+      - task: cert-manager:delete
       - task: envoy:delete
       - task: argocd:delete
       - task: cluster:delete
@@ -132,3 +158,4 @@ tasks:
       - task: cluster:status
       - task: argocd:status
       - task: envoy:status
+      - task: cert-manager:status

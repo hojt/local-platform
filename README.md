@@ -12,7 +12,9 @@ Current platform capabilities include:
 * Kubernetes cluster
 * local container registry
 * GitOps
-* HTTP routing through Gateway API
+* HTTP and HTTPS routing through Gateway API
+* TLS certificate management
+* TLS certificate management
 * task-based automation
 
 Current implementations include:
@@ -22,12 +24,12 @@ Current implementations include:
 * Podman for container operations
 * Argo CD for GitOps
 * Envoy Gateway for Gateway API
+* Cert-manager for certificate management
 
 Future platform capabilities may include:
 
 * CI pipelines
 * externally reachable LoadBalancer services
-* TLS and certificate management
 * observability
 
 Alternative implementations may also be evaluated as the homelab evolves.
@@ -98,12 +100,12 @@ Local Container Registry
           ▼
      Kind Cluster
        │      │
-       │      ├─────────────┐
-       ▼                    ▼
-    Argo CD            Envoy Gateway
-                            │
-                            ▼
-                      Gateway API
+       │      ├─────────────┬──────────────┐
+       ▼                    ▼              ▼
+    Argo CD            Envoy Gateway   cert-manager
+                            │              │
+                            ▼              │
+                      Gateway API ◄────────┘
 ```
 
 Inspect the running platform:
@@ -119,6 +121,7 @@ task registry:status
 task cluster:status
 task argocd:status
 task envoy:status
+task cert-manager:status
 ```
 
 The desired state of workloads is maintained separately in
@@ -140,11 +143,19 @@ local Envoy Gateway:
 task envoy:forward
 ```
 
-For example, `example-backend` can then be reached with:
+The forward exposes the Gateway over HTTP on port 8080 and HTTPS on port 8443.
+
+For example, `example-backend` can then be reached over HTPS with:
 
 ```bash
-curl http://localhost:8080/api/greeting
+curl -k \
+  --resolve example.local:8443:127.0.0.1 \
+  http://example.local:8443/api/greeting
 ```
+
+`--resolve` maps the route hostname to the local port forward without requiring
+a local DNS entry. `-k` is required because the local platform currently uses
+self-signed certificates.
 
 When finished, tear down the local platform:
 
@@ -256,12 +267,13 @@ registry
    ▼
 cluster
    │
-   ├──────────────┐
-   ▼              ▼
-Argo CD      Envoy Gateway
-                  │
-                  ▼
-             Gateway config
+   ├──────────────┬────────────────┐
+   ▼              ▼                ▼
+Argo CD      Envoy Gateway    cert-manager
+                  │                │
+                  └───────┬────────┘
+                          ▼
+                    Gateway config
 ```
 
 Individual components also expose lifecycle tasks for development,
@@ -423,9 +435,33 @@ The initial Argo CD applications are bootstrapped from `local-environments`.
 After that bootstrap, normal workload changes are performed through Git and
 reconciled by Argo CD.
 
+## Certificate Management
+
+The local platform uses cert-manager for TLS certificate management.
+
+For local development, cert-manager is configured with a self-signed
+`ClusterIssuer`. The shared Gateway uses this issuer to request certificates
+for HTTPS listeners.
+
+Install cert-manager:
+
+```bash
+task cert-manager:install
+```
+
+Configure the local certificate issuer:
+
+```bash
+task cert-manager:status
+```
+
+The self-signed issuer is intended for local development only. A different
+certificate issuer can be introduced when environments require publicly or
+internally trusted certificates.
+
 ## Gateway API
 
-The local platform uses Kubernetes Gateway API for north-south HTTP routing.
+The local platform uses Kubernetes Gateway API for north-south HTTP and HTTPS routing.
 
 Envoy Gateway is the initial Gateway API implementation.
 
@@ -434,6 +470,8 @@ Envoy Gateway is the initial Gateway API implementation.
 * the Envoy Gateway controller
 * the `GatewayClass`
 * the shared `Gateway`
+* the shared HTTP and HTTPS listeners
+* local TLS certificate integration
 
 Workload-specific routing is owned by `local-environments` and expressed using
 standard Gateway API resources such as `HTTPRoute`.
@@ -496,14 +534,21 @@ While the forward is running, workloads exposed through `HTTPRoute` can be
 reached through:
 
 ```text
-http://localhost:8080
+HTTP:  http://localhost:8080
+HTTPS: https://localhost:8443
 ```
 
-For example:
+HTTPS routes use their configured Gateway API hostname. For example:
 
 ```bash
-curl http://localhost:8080/api/greeting
+curl -k \
+  --resolve example.local:8443:127.0.0.1 \
+  http://example.local:8443/api/greeting
 ```
+
+The local Gateway terminates TLS using certificates managed by cert-manager.
+The current local issuer is self-signed, so clients do not trust these
+certificates by default.
 
 Delete Envoy Gateway:
 
@@ -518,9 +563,13 @@ Kubernetes networking implementations.
 ## Repository Structure
 
 ```text
-.
+
 ├── .devcontainer/
 ├── manifests/
+│   ├── cert-manager/
+│   │   └── selfsigned/
+│   │       ├── clusterissuer.yaml
+│   │       └── kustomization.yaml
 │   └── gateway/
 │       └── envoy/
 │           ├── gatewayclass.yaml
