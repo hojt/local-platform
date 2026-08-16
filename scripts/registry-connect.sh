@@ -7,17 +7,26 @@ source "${script_dir}/config.sh"
 
 registry_dir="/etc/containerd/certs.d/${REGISTRY_ADDRESS}"
 
+if ! podman container exists "${REGISTRY_NAME}"; then
+  echo "Registry ${REGISTRY_NAME} does not exist" >&2
+  exit 1
+fi
+
+if [[ "$(podman inspect --format '{{.State.Running}}' "${REGISTRY_NAME}")" != "true" ]]; then
+  echo "Registry ${REGISTRY_NAME} is not running" >&2
+  exit 1
+fi
+
 if ! podman inspect \
   --format '{{json .NetworkSettings.Networks}}' \
   "${REGISTRY_NAME}" |
-  grep -q "${KIND_NETWORK}"; then
+  grep -q "\"${KIND_NETWORK}\""; then
   echo "Registry ${REGISTRY_NAME} is not connected to the kind network '${KIND_NETWORK}'" >&2
   echo "Recreate the registry with: task registry:delete registry:create" >&2
   exit 1
 fi
-echo "Registry is connected to the kind network"
 
-echo "Configuring containerd registry mirror"
+echo "Registry is connected to the kind network"
 
 nodes="$(kind get nodes --name "${CLUSTER_NAME}")"
 
@@ -25,6 +34,15 @@ if [[ -z "${nodes}" ]]; then
   echo "No nodes found for cluster ${CLUSTER_NAME}" >&2
   exit 1
 fi
+
+while IFS= read -r node; do
+  if [[ "$(podman inspect --format '{{.State.Running}}' "${node}")" != "true" ]]; then
+    echo "Kind node ${node} is not running" >&2
+    exit 1
+  fi
+done <<<"${nodes}"
+
+echo "Configuring containerd registry mirror"
 
 while IFS= read -r node; do
   podman exec "${node}" \
@@ -37,7 +55,7 @@ while IFS= read -r node; do
 server = "http://${REGISTRY_NAME}:${REGISTRY_CONTAINER_PORT}"
 
 [host."http://${REGISTRY_NAME}:${REGISTRY_CONTAINER_PORT}"]
-  capabilities = ["pull", "resolve"]
+capabilities = ["pull", "resolve"]
 EOF
 done <<<"${nodes}"
 

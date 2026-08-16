@@ -5,7 +5,6 @@ tasks:
     desc: Create the local kind cluster
     cmds:
       - ./scripts/cluster-create.sh
-      - task: registry:connect
 
   cluster:delete:
     desc: Delete the local kind cluster
@@ -104,10 +103,19 @@ tasks:
     desc: Create the local platform
     cmds:
       - task: registry:create
+      - task: registry:status
+
       - task: cluster:create
+      - task: cluster:status
+
+      - task: registry:connect
+
       - task: argocd:install
+      - task: argocd:status
+
       - task: envoy:install
       - task: envoy:configure
+      - task: envoy:status
 
   down:
     desc: Delete the local platform

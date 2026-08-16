@@ -11,7 +11,12 @@ if ! podman network exists "${KIND_NETWORK}"; then
 fi
 
 if podman container exists "${REGISTRY_NAME}"; then
-  echo "Registry ${REGISTRY_NAME} already exists"
+  if [[ "$(podman inspect --format '{{.State.Running}}' "${REGISTRY_NAME}")" == "true" ]]; then
+    echo "Registry ${REGISTRY_NAME} is already running"
+  else
+    echo "Starting registry ${REGISTRY_NAME}"
+    podman start "${REGISTRY_NAME}" >/dev/null
+  fi
 else
   echo "Creating registry ${REGISTRY_NAME}"
 
@@ -21,7 +26,8 @@ else
     --name "${REGISTRY_NAME}" \
     --network "${KIND_NETWORK}" \
     --publish "127.0.0.1:${REGISTRY_HOST_PORT}:${REGISTRY_CONTAINER_PORT}" \
-    "${REGISTRY_IMAGE}"
+    "${REGISTRY_IMAGE}" \
+    >/dev/null
 fi
 
 echo "Registry available at ${REGISTRY_ADDRESS}"
