@@ -4,7 +4,7 @@ metadata:
   name: local-gateway
   namespace: default
   annotations:
-    cert-manager.io/cluster-issuer: selfsigned
+    cert-manager.io/cluster-issuer: local-ca
 spec:
   gatewayClassName: envoy
   listeners:

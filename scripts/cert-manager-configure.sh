@@ -12,7 +12,7 @@ echo "Configuring cert-manager"
 kubectl \
   --context "${KUBE_CONTEXT}" \
   apply \
-  --kustomize "${repo_root}/manifests/cert-manager/selfsigned"
+  --kustomize "${repo_root}/manifests/cert-manager"
 
 echo
 echo "Waiting for selfsigned ClusterIssuer"

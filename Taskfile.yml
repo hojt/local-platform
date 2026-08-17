@@ -119,6 +119,11 @@ tasks:
     cmds:
       - ./scripts/cert-manager-configure.sh
 
+  cert-manager:export-ca:
+    desc: Export the local root CA certificate
+    cmds:
+      - ./scripts/cert-manager-export-ca.sh
+
   up:
     desc: Create the local platform
     cmds:
