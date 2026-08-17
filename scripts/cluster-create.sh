@@ -5,6 +5,8 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${script_dir}/config.sh"
 
+repo_root="$(cd -- "${script_dir}/.." && pwd)"
+
 cluster_exists() {
   kind get clusters 2>/dev/null |
     grep -Fxq "${CLUSTER_NAME}"
@@ -68,7 +70,8 @@ if cluster_exists; then
   ensure_cluster_nodes_running
 else
   kind create cluster \
-    --name "${CLUSTER_NAME}"
+    --name "${CLUSTER_NAME}" \
+    --config "${repo_root}/manifests/kind/cluster.yaml"
 fi
 
 wait_for_kubernetes

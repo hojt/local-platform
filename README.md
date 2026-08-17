@@ -15,6 +15,7 @@ Current platform capabilities include:
 -   GitOps
 -   HTTP and HTTPS routing through Gateway API
 -   TLS certificate management
+-   direct local access to Gateway workloads
 -   local host integration for trusted HTTPS and hostname resolution
 -   task-based automation
 
@@ -30,7 +31,7 @@ Current implementations include:
 Future platform capabilities may include:
 
 -   CI pipelines
--   externally reachable LoadBalancer services
+-   more complete local LoadBalancer integration
 -   observability
 
 Alternative implementations may also be evaluated as the homelab
@@ -109,6 +110,9 @@ Local Container Registry
                       └───────┬────────┘
                               ▼
                          Gateway API
+                              │
+                              ▼
+                           Workloads
 ```
 
 Inspect the running platform:
@@ -139,33 +143,42 @@ task argocd:bootstrap
 
 From that point, workload changes are reconciled from Git.
 
-When host access to workloads through the Gateway API is needed, forward
-the local Envoy Gateway:
+The local Gateway is reachable directly from the developer host through
+fixed Kind port mappings. No long-running `kubectl port-forward` process
+is required for normal local development.
+
+Configure the host-side integration:
 
 ``` bash
-task envoy:forward
+./trust-ca.sh install
+./hosts.sh install
 ```
 
-The forward exposes the Gateway over HTTP on port 8080 and HTTPS on port
-8443.
-
-Without host integration, an HTTPS route can be tested explicitly with
-curl:
+The example backend can then be reached over HTTP:
 
 ``` bash
-curl -k \
-  --resolve example.local:8443:127.0.0.1 \
-  https://example.local:8443/api/greeting
+curl http://example.local:8080/api/greeting
 ```
 
-For a more convenient local workflow, export the platform CA, trust it
-on the developer host, and add the local hostname mapping as described
-in [Local Host Integration](#local-host-integration).
+Or over trusted HTTPS:
+
+``` bash
+curl https://example.local:8443/api/greeting
+```
 
 When finished, tear down the local platform:
 
 ``` bash
 task down
+```
+
+Host-side trust and hostname configuration are intentionally separate
+from the platform lifecycle. They can be removed explicitly when no
+longer wanted:
+
+``` bash
+./trust-ca.sh remove
+./hosts.sh remove
 ```
 
 The golden path is intentionally small:
@@ -184,6 +197,9 @@ Argo CD reconciliation
     │
     ▼
 Gateway API routing
+    │
+    ▼
+direct host access
     │
     ▼
  workloads
@@ -283,6 +299,17 @@ Argo CD      Envoy Gateway    cert-manager
                     Gateway config
 ```
 
+The Kind cluster is created with fixed host-to-node port mappings for
+the local Gateway:
+
+``` text
+127.0.0.1:8080 -> Kind node :30080
+127.0.0.1:8443 -> Kind node :30443
+```
+
+The Envoy data plane uses the corresponding fixed NodePorts, providing
+stable local access across clean platform bootstraps.
+
 Individual components also expose lifecycle tasks for development,
 troubleshooting, and experimentation.
 
@@ -321,6 +348,19 @@ Useful direct inspection commands include:
 kind get clusters
 kubectl get nodes
 ```
+
+The Kind node exposes fixed container ports to the developer host so the
+Envoy Gateway can be reached without port forwarding.
+
+The current mapping is:
+
+``` text
+Host :8080  -> Kind node :30080
+Host :8443  -> Kind node :30443
+```
+
+These mappings are established when the Kind node is created and
+therefore depend on stable NodePorts on the Envoy Gateway service.
 
 ## Local Container Registry
 
@@ -391,6 +431,7 @@ local-platform
   ├── Kubernetes
   ├── Container Registry
   ├── Argo CD
+  ├── cert-manager
   └── Gateway API
           │
           ▼
@@ -505,6 +546,7 @@ Envoy Gateway is the initial Gateway API implementation.
 -   the shared `Gateway`
 -   the shared HTTP and HTTPS listeners
 -   local TLS certificate integration
+-   the local exposure of the Gateway data plane
 
 Workload-specific routing is owned by `local-environments` and expressed
 using standard Gateway API resources such as `HTTPRoute`.
@@ -516,7 +558,8 @@ local-platform
         │
         ├── Envoy Gateway controller
         ├── GatewayClass
-        └── Gateway
+        ├── Gateway
+        └── local Gateway exposure
                  │
                  ▼
 local-environments
@@ -554,34 +597,51 @@ Show Envoy Gateway status:
 task envoy:status
 ```
 
-Forward the local Gateway to the developer host:
+The Envoy data plane uses stable NodePorts for the shared Gateway:
+
+``` text
+HTTP:  30080
+HTTPS: 30443
+```
+
+The Kind control-plane node maps these ports directly to the developer
+host:
+
+``` text
+127.0.0.1:8080 -> 30080
+127.0.0.1:8443 -> 30443
+```
+
+This makes the Gateway directly reachable from the host without
+requiring a long-running `kubectl port-forward` process.
+
+With local hostname resolution configured, HTTP routes are available
+through:
+
+``` bash
+curl http://example.local:8080/api/greeting
+```
+
+With the local root CA also trusted, HTTPS routes are available through:
+
+``` bash
+curl https://example.local:8443/api/greeting
+```
+
+The NodePorts are intentionally fixed because Kind port mappings are
+configured when the cluster is created and therefore need stable
+destination ports.
+
+The local Gateway terminates TLS using certificates managed by
+cert-manager.
+
+For troubleshooting, the Gateway can still be exposed temporarily using:
 
 ``` bash
 task envoy:forward
 ```
 
-The current local access method uses port forwarding because the Kind
-cluster does not yet provide an external address for `LoadBalancer`
-services.
-
-While the forward is running, workloads exposed through `HTTPRoute` can
-be reached through:
-
-``` text
-HTTP:  http://localhost:8080
-HTTPS: https://localhost:8443
-```
-
-HTTPS routes use their configured Gateway API hostname. For example:
-
-``` bash
-curl -k \
-  --resolve example.local:8443:127.0.0.1 \
-  https://example.local:8443/api/greeting
-```
-
-The local Gateway terminates TLS using certificates managed by
-cert-manager.
+Port forwarding is not required for normal local development.
 
 Delete Envoy Gateway:
 
@@ -589,20 +649,23 @@ Delete Envoy Gateway:
 task envoy:delete
 ```
 
-A more complete local LoadBalancer solution is intentionally left for a
-future increment. Possible approaches include `cloud-provider-kind` or
-other Kubernetes networking implementations.
+The current host ports are deliberately non-privileged ports. More
+transparent local access on ports 80 and 443 can be evaluated separately
+without changing the Gateway API routing model.
 
 ## Local Host Integration
 
 The Kubernetes platform is intentionally isolated from permanent host
 configuration, but a small amount of optional host integration makes
-local HTTPS considerably more convenient.
+local development considerably more convenient.
 
 There are two separate concerns:
 
 1.  trust the local root CA on the Fedora host
 2.  resolve local Gateway hostnames to `127.0.0.1`
+
+These operations are explicit and reversible. They are not hidden inside
+`task up` because they modify the developer host.
 
 ### Certificate trust
 
@@ -612,13 +675,21 @@ Export the root CA from the running platform inside the Dev Container:
 task cert-manager:export-ca
 ```
 
-Install the exported CA in the Fedora host trust store using the
-host-side helper created for this purpose. The helper can also remove
-the certificate again when it is no longer needed.
+On the Fedora host, install the exported CA:
+
+``` bash
+./trust-ca.sh install
+```
+
+Remove it again with:
+
+``` bash
+./trust-ca.sh remove
+```
 
 Because the root CA is generated by the local platform, a clean platform
 bootstrap may replace it. When that happens, export the new CA and
-refresh the host trust entry.
+reinstall the host trust entry.
 
 This keeps certificate generation owned by Kubernetes while host trust
 remains an explicit developer-machine operation.
@@ -628,10 +699,10 @@ remains an explicit developer-machine operation.
 `hosts.sh` manages the local `/etc/hosts` entry used by the example
 Gateway hostname.
 
-Add the mapping:
+Install the mapping:
 
 ``` bash
-./hosts.sh add
+./hosts.sh install
 ```
 
 This maps:
@@ -649,15 +720,50 @@ Remove it again with:
 The helper keeps this host-specific operation outside the Dev Container
 and makes the change explicit and reversible.
 
-With the CA trusted, the hostname configured, and `task envoy:forward`
-running, the example backend can be reached without `-k` or `--resolve`:
+### Local access
+
+With hostname resolution configured:
+
+``` bash
+curl http://example.local:8080/api/greeting
+```
+
+With both hostname resolution and the local CA installed:
 
 ``` bash
 curl https://example.local:8443/api/greeting
 ```
 
-This is the preferred local developer experience while port forwarding
-remains the mechanism used to expose the Gateway.
+No `-k`, `--resolve`, or long-running port-forward process is required
+for the normal HTTPS workflow.
+
+The resulting local request path is:
+
+``` text
+Developer Host
+      │
+      │ example.local:8080 / :8443
+      ▼
+127.0.0.1
+      │
+      ▼
+Kind extraPortMappings
+      │
+      ├── :8080  -> node :30080
+      └── :8443  -> node :30443
+                         │
+                         ▼
+                    Envoy Gateway
+                         │
+                         ▼
+                     HTTPRoute
+                         │
+                         ▼
+                       Service
+                         │
+                         ▼
+                      Workload
+```
 
 ## Repository Structure
 
@@ -670,15 +776,19 @@ remains the mechanism used to expose the Gateway.
 │   │   │   ├── clusterissuer.yaml
 │   │   │   └── kustomization.yaml
 │   │   └── ...
-│   └── gateway/
-│       └── envoy/
-│           ├── gatewayclass.yaml
-│           ├── gateway.yaml
-│           └── kustomization.yaml
+│   ├── gateway/
+│   │   └── envoy/
+│   │       ├── gatewayclass.yaml
+│   │       ├── gateway.yaml
+│   │       ├── kustomization.yaml
+│   │       └── ...
+│   └── kind/
+│       └── ...
 ├── scripts/
 ├── Taskfile.yaml
 ├── dev.sh
 ├── hosts.sh
+├── trust-ca.sh
 └── README.md
 ```
 
@@ -690,13 +800,15 @@ The main entrypoints are deliberately few:
 -   `manifests/` contains declarative platform configuration owned by
     this repository.
 -   `hosts.sh` manages host-side local hostname resolution.
+-   `trust-ca.sh` manages host-side trust of the local development CA.
 -   `.devcontainer/` defines the repository development environment.
 
-Task provides the user-facing interface.
+Task provides the user-facing interface inside the Dev Container.
 
-Reusable or non-trivial automation is implemented as shell scripts under
-`scripts/`. Simple commands may be kept directly in the Taskfile when
-doing so keeps the underlying operation visible and easy to understand.
+Reusable or non-trivial platform automation is implemented as shell
+scripts under `scripts/`. Simple commands may be kept directly in the
+Taskfile when doing so keeps the underlying operation visible and easy
+to understand.
 
 Host-specific operations that require privileges or modify the developer
 machine are kept explicit rather than hidden inside `task up`.
