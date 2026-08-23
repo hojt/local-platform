@@ -192,6 +192,7 @@ tasks:
     cmds:
       - task: registry:status
       - task: cluster:status
+      - task: sealed-secrets:status
       - task: argocd:status
       - task: envoy:status
       - task: cert-manager:status
