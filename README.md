@@ -15,6 +15,7 @@ Current platform capabilities include:
 -   GitOps
 -   HTTP and HTTPS routing through Gateway API
 -   TLS certificate management
+-   encrypted GitOps secret management
 -   direct local access to Gateway workloads
 -   local host integration for trusted HTTPS and hostname resolution
 -   task-based automation
@@ -27,6 +28,7 @@ Current implementations include:
 -   Argo CD for GitOps
 -   Envoy Gateway for Gateway API
 -   cert-manager for certificate management
+-   Sealed Secrets for encrypted GitOps secrets
 
 Future platform capabilities may include:
 
@@ -103,16 +105,17 @@ Local Container Registry
           ▼
      Kind Cluster
        │
-       ├──────────────┬────────────────┐
-       ▼              ▼                ▼
-    Argo CD      Envoy Gateway    cert-manager
-                      │                │
-                      └───────┬────────┘
-                              ▼
-                         Gateway API
-                              │
-                              ▼
-                           Workloads
+       ├──────────────┬────────────────┬────────────────┐
+       ▼              ▼                ▼                ▼
+    Argo CD      Envoy Gateway    cert-manager    Sealed Secrets
+                      │                │                │
+                      └───────┬────────┘                │
+                              ▼                         │
+                         Gateway API                    │
+                              │                         │
+                              └────────────┬────────────┘
+                                           ▼
+                                        Workloads
 ```
 
 Inspect the running platform:
@@ -129,6 +132,7 @@ task cluster:status
 task argocd:status
 task envoy:status
 task cert-manager:status
+task sealed-secrets:status
 ```
 
 The desired state of workloads is maintained separately in
@@ -290,13 +294,15 @@ registry
    ▼
 cluster
    │
-   ├──────────────┬────────────────┐
-   ▼              ▼                ▼
-Argo CD      Envoy Gateway    cert-manager
-                  │                │
-                  └───────┬────────┘
-                          ▼
-                    Gateway config
+   ├──────────────┬────────────────┬────────────────┐
+   ▼              ▼                ▼                ▼
+Argo CD      Envoy Gateway    cert-manager    Sealed Secrets
+                  │                │                │
+                  └───────┬────────┘                │
+                          ▼                         │
+                    Gateway config                 │
+                                                   │
+                                      encrypted secrets
 ```
 
 The Kind cluster is created with fixed host-to-node port mappings for
@@ -309,6 +315,33 @@ the local Gateway:
 
 The Envoy data plane uses the corresponding fixed NodePorts, providing
 stable local access across clean platform bootstraps.
+
+Sealed Secrets key material has a lifecycle independent of the disposable Kind
+cluster.
+
+During `task down`, the complete Sealed Secrets key set is backed up before the
+controller and cluster are deleted. During `task up`, any existing key backup is
+restored before the Sealed Secrets controller is installed.
+
+``` text
+task down
+   │
+   ├── sealed-secrets:backup
+   ├── platform component deletion
+   └── cluster:delete
+
+task up
+   │
+   ├── cluster:create
+   ├── sealed-secrets:restore
+   ├── sealed-secrets:install
+   └── remaining platform bootstrap
+```
+
+The restore operation is re-entrant. If no key backup exists, restore is
+skipped and the controller creates its initial sealing key. If a backup exists,
+the keys are restored before the controller starts so clean cluster recreation
+does not create unnecessary replacement keys.
 
 Individual components also expose lifecycle tasks for development,
 troubleshooting, and experimentation.
@@ -432,12 +465,15 @@ local-platform
   ├── Container Registry
   ├── Argo CD
   ├── cert-manager
+  ├── Sealed Secrets controller
   └── Gateway API
           │
           ▼
 local-environments
           │
-          │ desired state
+          ├── desired workload state
+          └── encrypted SealedSecret resources
+          │
           ▼
      Workloads
 ```
@@ -510,6 +546,7 @@ Show cert-manager status:
 
 ``` bash
 task cert-manager:status
+task sealed-secrets:status
 ```
 
 Export the current local root CA from Kubernetes:
@@ -531,6 +568,118 @@ task cert-manager:delete
 The local CA is intended for development only. A different certificate
 issuer can be introduced when environments require publicly or
 internally trusted certificates.
+
+## Secret Management
+
+The local platform uses Sealed Secrets for GitOps-compatible secret
+management.
+
+Plaintext secret values are not stored in Git. Workload repositories instead
+store `SealedSecret` resources that contain encrypted secret data. The Sealed
+Secrets controller runs inside the destination cluster and materializes normal
+Kubernetes `Secret` resources there.
+
+The responsibility boundary is:
+
+``` text
+local-platform
+        │
+        ├── Sealed Secrets controller
+        └── sealing key lifecycle
+                 │
+                 ▼
+local-environments
+        │
+        └── SealedSecret
+                 │
+                 ▼
+        Kubernetes Secret
+                 │
+                 ▼
+              Workload
+```
+
+### Sealed Secrets
+
+Install the controller:
+
+``` bash
+task sealed-secrets:install
+```
+
+Show controller and sealing key status:
+
+``` bash
+task sealed-secrets:status
+```
+
+Back up the current sealing keys:
+
+``` bash
+task sealed-secrets:backup
+```
+
+Restore backed-up sealing keys:
+
+``` bash
+task sealed-secrets:restore
+```
+
+Delete the controller:
+
+``` bash
+task sealed-secrets:delete
+```
+
+The sealing keys are stored by the controller as Kubernetes TLS secrets.
+Automatic key renewal may create additional keys over time. Old keys remain
+important because existing `SealedSecret` resources may still depend on them.
+
+The backup therefore contains the complete current key set, not only the newest
+key.
+
+Local backups are stored under:
+
+``` text
+.local/sealed-secrets/keys.yaml
+```
+
+The `.local/` directory is excluded from Git.
+
+The backup contains private cryptographic key material and must be treated as
+sensitive persistent state. The local file is sufficient for development and
+recovery testing, but stronger external backup protection is expected for
+non-local environments.
+
+The normal platform lifecycle automatically integrates key backup and restore:
+
+``` text
+clean shutdown
+    │
+    ▼
+backup complete sealing key set
+    │
+    ▼
+delete disposable cluster
+
+create new cluster
+    │
+    ▼
+restore existing sealing keys
+    │
+    ▼
+install Sealed Secrets controller
+    │
+    ▼
+existing SealedSecret ciphertext remains decryptable
+```
+
+This keeps the Kubernetes cluster disposable while allowing encrypted GitOps
+state to remain stable across cluster recreation.
+
+The explicit backup and restore tasks remain available for troubleshooting,
+disaster-recovery exercises, and manual key lifecycle operations.
+
 
 ## Gateway API
 
@@ -770,6 +919,9 @@ Kind extraPortMappings
 ``` text
 .
 ├── .devcontainer/
+├── .local/
+│   └── sealed-secrets/
+│       └── keys.yaml
 ├── manifests/
 │   ├── cert-manager/
 │   │   ├── selfsigned/
@@ -802,6 +954,8 @@ The main entrypoints are deliberately few:
 -   `hosts.sh` manages host-side local hostname resolution.
 -   `trust-ca.sh` manages host-side trust of the local development CA.
 -   `.devcontainer/` defines the repository development environment.
+-   `.local/` contains generated local state, including sensitive Sealed
+    Secrets key backups, and is excluded from Git.
 
 Task provides the user-facing interface inside the Dev Container.
 
@@ -826,6 +980,8 @@ In particular:
 -   keep repository responsibilities explicit
 -   prefer open and portable technologies
 -   prefer standard APIs where practical
+-   never store plaintext workload secrets or private sealing keys in Git
+-   keep recovery-critical key material independent of disposable clusters
 -   evolve the platform incrementally
 -   avoid abstractions before they solve a concrete problem
 

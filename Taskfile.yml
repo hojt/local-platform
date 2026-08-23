@@ -124,6 +124,31 @@ tasks:
     cmds:
       - ./scripts/cert-manager-export-ca.sh
 
+  sealed-secrets:install:
+    desc: Install Sealed Secrets
+    cmds:
+      - ./scripts/sealed-secrets-install.sh
+
+  sealed-secrets:backup:
+    desc: Back up Sealed Secrets controller keys
+    cmds:
+      - ./scripts/sealed-secrets-backup.sh
+
+  sealed-secrets:restore:
+    desc: Restore Sealed Secrets controller keys
+    cmds:
+      - ./scripts/sealed-secrets-restore.sh
+
+  sealed-secrets:status:
+    desc: Show Sealed Secrets status
+    cmds:
+      - ./scripts/sealed-secrets-status.sh
+
+  sealed-secrets:delete:
+    desc: Delete Sealed Secrets
+    cmds:
+      - ./scripts/sealed-secrets-delete.sh
+
   up:
     desc: Create the local platform
     cmds:
@@ -134,6 +159,10 @@ tasks:
       - task: cluster:status
       # ---
       - task: registry:connect
+      # ---
+      - task: sealed-secrets:restore
+      - task: sealed-secrets:install
+      - task: sealed-secrets:status
       # ---
       - task: argocd:install
       - task: argocd:status
@@ -150,8 +179,10 @@ tasks:
   down:
     desc: Delete the local platform
     cmds:
+      - task: sealed-secrets:backup
       - task: cert-manager:delete
       - task: envoy:delete
+      - task: sealed-secrets:delete
       - task: argocd:delete
       - task: cluster:delete
       - task: registry:delete
