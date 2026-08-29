@@ -149,6 +149,21 @@ tasks:
     cmds:
       - ./scripts/sealed-secrets-delete.sh
 
+  otel:install:
+    desc: Install OpenTelemetry Collector
+    cmds:
+      - ./scripts/otel-install.sh
+
+  otel:status:
+    desc: Show OpenTelemetry Collector status
+    cmds:
+      - ./scripts/otel-status.sh
+
+  otel:delete:
+    desc: Delete OpenTelemetry Collector
+    cmds:
+      - ./scripts/otel-delete.sh
+
   up:
     desc: Create the local platform
     cmds:
@@ -163,6 +178,9 @@ tasks:
       - task: sealed-secrets:restore
       - task: sealed-secrets:install
       - task: sealed-secrets:status
+      # ---
+      - task: otel:install
+      - task: otel:status
       # ---
       - task: argocd:install
       - task: argocd:status
@@ -184,6 +202,7 @@ tasks:
       - task: envoy:delete
       - task: sealed-secrets:delete
       - task: argocd:delete
+      - task: otel:delete
       - task: cluster:delete
       - task: registry:delete
 
@@ -193,6 +212,7 @@ tasks:
       - task: registry:status
       - task: cluster:status
       - task: sealed-secrets:status
+      - task: otel:status
       - task: argocd:status
       - task: envoy:status
       - task: cert-manager:status
