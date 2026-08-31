@@ -149,6 +149,36 @@ tasks:
     cmds:
       - ./scripts/sealed-secrets-delete.sh
 
+  observability:install:
+    desc: Install shared observability resources
+    cmds:
+      - ./scripts/observability-install.sh
+
+  observability:status:
+    desc: Show observability platform status
+    cmds:
+      - ./scripts/observability-status.sh
+
+  observability:delete:
+    desc: Delete shared observability resources
+    cmds:
+      - ./scripts/observability-delete.sh
+
+  prometheus:install:
+    desc: Install Prometheus
+    cmds:
+      - ./scripts/prometheus-install.sh
+
+  prometheus:status:
+    desc: Show Prometheus status
+    cmds:
+      - ./scripts/prometheus-status.sh
+
+  prometheus:delete:
+    desc: Delete Prometheus
+    cmds:
+      - ./scripts/prometheus-delete.sh
+
   otel:install:
     desc: Install OpenTelemetry Collector
     cmds:
@@ -179,6 +209,12 @@ tasks:
       - task: sealed-secrets:install
       - task: sealed-secrets:status
       # ---
+      - task: observability:install
+      - task: observability:status
+      # ---
+      - task: prometheus:install
+      - task: prometheus:status
+      # ---
       - task: otel:install
       - task: otel:status
       # ---
@@ -203,6 +239,8 @@ tasks:
       - task: sealed-secrets:delete
       - task: argocd:delete
       - task: otel:delete
+      - task: prometheus:delete
+      - task: observability:delete
       - task: cluster:delete
       - task: registry:delete
 
@@ -212,7 +250,9 @@ tasks:
       - task: registry:status
       - task: cluster:status
       - task: sealed-secrets:status
+      - task: observability:status
+      - task: prometheus:status
       - task: otel:status
       - task: argocd:status
-      - task: envoy:status
       - task: cert-manager:status
+      - task: envoy:status

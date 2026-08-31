@@ -23,6 +23,8 @@ spec:
               containerPort: 4317
             - name: otlp-http
               containerPort: 4318
+            - name: prometheus
+              containerPort: 8889
           volumeMounts:
             - name: config
               mountPath: /etc/otelcol/config.yaml

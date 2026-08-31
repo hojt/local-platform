@@ -13,3 +13,6 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: otlp-http
+    - name: prometheus
+      port: 8889
+      targetPort: prometheus

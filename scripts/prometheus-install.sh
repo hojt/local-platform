@@ -7,18 +7,18 @@ repo_root="$(cd -- "${script_dir}/.." && pwd)"
 
 source "${script_dir}/config.sh"
 
-echo "Installing OpenTelemetry Collector"
+echo "Installing Prometheus"
 
 kubectl \
   --context "${KUBE_CONTEXT}" \
   apply \
-  --kustomize "${repo_root}/manifests/otel"
+  --kustomize "${repo_root}/manifests/prometheus"
 
 echo
-echo "Waiting for OpenTelemetry Collector"
+echo "Waiting for Prometheus"
 
 kubectl \
   --context "${KUBE_CONTEXT}" \
   --namespace observability \
-  rollout status deployment/otel-collector \
+  rollout status deployment/prometheus \
   --timeout=5m
