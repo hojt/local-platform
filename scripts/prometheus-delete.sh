@@ -7,6 +7,14 @@ repo_root="$(cd -- "${script_dir}/.." && pwd)"
 
 source "${script_dir}/config.sh"
 
+if ! kubectl \
+  --context "${KUBE_CONTEXT}" \
+  get --raw=/readyz \
+  >/dev/null 2>&1; then
+  echo "Kubernetes API is unavailable; skipping Prometheus deletion"
+  exit 0
+fi
+
 echo "Deleting Prometheus"
 
 kubectl \
