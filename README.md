@@ -16,8 +16,10 @@ Current platform capabilities include:
 -   HTTP and HTTPS routing through Gateway API
 -   TLS certificate management
 -   encrypted GitOps secret management
+-   observability
 -   direct local access to Gateway workloads
--   local host integration for trusted HTTPS and hostname resolution
+-   local host integration for trusted HTTPS, hostname resolution, and
+    required kernel limits
 -   task-based automation
 
 Current implementations include:
@@ -29,12 +31,18 @@ Current implementations include:
 -   Envoy Gateway for Gateway API
 -   cert-manager for certificate management
 -   Sealed Secrets for encrypted GitOps secrets
+-   OpenTelemetry Collector for telemetry ingestion and processing
+-   Prometheus for metrics storage and querying
+-   Grafana for observability exploration and visualization
 
 Future platform capabilities may include:
 
 -   CI pipelines
 -   more complete local LoadBalancer integration
--   observability
+-   persistent observability storage
+-   a dedicated trace backend
+-   a dedicated log backend
+-   richer dashboards and alerting
 
 Alternative implementations may also be evaluated as the homelab
 evolves.
@@ -48,6 +56,7 @@ Examples include:
 -   Traefik
 -   HAProxy
 -   Istio
+-   alternative OpenTelemetry-compatible observability backends
 
 Specific tools are generally treated as implementations of platform
 capabilities rather than permanent architectural choices.
@@ -67,6 +76,21 @@ Required on the host:
 
 Repository-specific tooling runs inside the Dev Container.
 
+The rootless Podman and Kind platform also requires enough per-user
+inotify instances on the host as the number of platform components
+grows.
+
+The recommended host value is:
+
+``` text
+fs.inotify.max_user_instances = 1024
+```
+
+The host-side `inotify.sh` helper can inspect and configure this limit.
+
+This setting is kept outside `task up` because it modifies the developer
+host.
+
 ``` text
 Host
   │
@@ -84,6 +108,13 @@ scripts/
 ```
 
 ## Golden Path
+
+Inspect and configure the host inotify limit when needed:
+
+``` bash
+./inotify.sh status
+./inotify.sh install
+```
 
 Start or reconnect to the development environment:
 
@@ -104,18 +135,20 @@ Local Container Registry
           │
           ▼
      Kind Cluster
-       │
-       ├──────────────┬────────────────┬────────────────┐
-       ▼              ▼                ▼                ▼
-    Argo CD      Envoy Gateway    cert-manager    Sealed Secrets
-                      │                │                │
-                      └───────┬────────┘                │
-                              ▼                         │
-                         Gateway API                    │
-                              │                         │
-                              └────────────┬────────────┘
-                                           ▼
-                                        Workloads
+          │
+          ├───────────────┬────────────────┬────────────────┐
+          ▼               ▼                ▼                ▼
+     Sealed Secrets   Observability      Argo CD       Gateway/TLS
+                          │                              │
+                          ├── Prometheus                 ├── Envoy Gateway
+                          ├── Grafana                    └── cert-manager
+                          └── OTel Collector
+                                  │
+                                  ▼
+                              Telemetry
+                                  │
+                                  ▼
+                               Workloads
 ```
 
 Inspect the running platform:
@@ -133,6 +166,10 @@ task argocd:status
 task envoy:status
 task cert-manager:status
 task sealed-secrets:status
+task observability:status
+task prometheus:status
+task grafana:status
+task otel:status
 ```
 
 The desired state of workloads is maintained separately in
@@ -147,11 +184,14 @@ task argocd:bootstrap
 
 From that point, workload changes are reconciled from Git.
 
+Application repositories are responsible for building and publishing the
+container images referenced by `local-environments`.
+
 The local Gateway is reachable directly from the developer host through
 fixed Kind port mappings. No long-running `kubectl port-forward` process
-is required for normal local development.
+is required for normal workload access.
 
-Configure the host-side integration:
+Configure the remaining host-side integration:
 
 ``` bash
 ./trust-ca.sh install
@@ -176,11 +216,12 @@ When finished, tear down the local platform:
 task down
 ```
 
-Host-side trust and hostname configuration are intentionally separate
-from the platform lifecycle. They can be removed explicitly when no
-longer wanted:
+Host-side inotify configuration, trust, and hostname configuration are
+intentionally separate from the platform lifecycle. They can be managed
+explicitly when needed:
 
 ``` bash
+./inotify.sh remove
 ./trust-ca.sh remove
 ./hosts.sh remove
 ```
@@ -188,7 +229,10 @@ longer wanted:
 The golden path is intentionally small:
 
 ``` text
-./dev.sh
+host prerequisites
+    │
+    ▼
+ ./dev.sh
     │
     ▼
  task up
@@ -200,7 +244,7 @@ local-environments
 Argo CD reconciliation
     │
     ▼
-Gateway API routing
+Gateway API routing + observability
     │
     ▼
 direct host access
@@ -286,7 +330,7 @@ task status
 task down
 ```
 
-`task up` currently brings up:
+`task up` currently brings up the platform in dependency-aware order:
 
 ``` text
 registry
@@ -294,16 +338,41 @@ registry
    ▼
 cluster
    │
-   ├──────────────┬────────────────┬────────────────┐
-   ▼              ▼                ▼                ▼
-Argo CD      Envoy Gateway    cert-manager    Sealed Secrets
-                  │                │                │
-                  └───────┬────────┘                │
-                          ▼                         │
-                    Gateway config                 │
-                                                   │
-                                      encrypted secrets
+   ▼
+registry integration
+   │
+   ▼
+Sealed Secrets key restore
+   │
+   ▼
+Sealed Secrets controller
+   │
+   ▼
+observability namespace
+   │
+   ├── Prometheus
+   ├── Grafana
+   └── OpenTelemetry Collector
+   │
+   ▼
+Argo CD
+   │
+   ▼
+Envoy Gateway
+   │
+   ▼
+cert-manager
+   │
+   ▼
+Gateway configuration
 ```
+
+Observability starts early so platform and workload telemetry can be
+received as soon as producers become available.
+
+During shutdown the producer-facing OpenTelemetry Collector is removed
+late, followed by Grafana, Prometheus, and finally the shared
+`observability` namespace.
 
 The Kind cluster is created with fixed host-to-node port mappings for
 the local Gateway:
@@ -431,7 +500,7 @@ task registry:tags IMAGE=example-backend
 For example:
 
 ``` text
-{"name":"example-backend","tags":["0.2.0"]}
+{"name":"example-backend","tags":["0.6.0"]}
 ```
 
 Delete the registry:
@@ -445,7 +514,7 @@ An image can also be pushed manually:
 ``` bash
 podman push \
   --tls-verify=false \
-  localhost:5001/example-backend:0.2.0
+  localhost:5001/example-backend:0.6.0
 ```
 
 ## GitOps
@@ -466,6 +535,7 @@ local-platform
   ├── Argo CD
   ├── cert-manager
   ├── Sealed Secrets controller
+  ├── Observability platform
   └── Gateway API
           │
           ▼
@@ -546,7 +616,6 @@ Show cert-manager status:
 
 ``` bash
 task cert-manager:status
-task sealed-secrets:status
 ```
 
 Export the current local root CA from Kubernetes:
@@ -680,6 +749,230 @@ state to remain stable across cluster recreation.
 The explicit backup and restore tasks remain available for troubleshooting,
 disaster-recovery exercises, and manual key lifecycle operations.
 
+## Observability
+
+The local platform uses an OpenTelemetry-first observability
+architecture.
+
+Application workloads export telemetry using OpenTelemetry Protocol
+(OTLP). The OpenTelemetry Collector provides a stable ingestion and
+processing layer between workloads and observability backends.
+
+The current architecture is:
+
+``` text
+Workload
+   │
+   │ OTLP
+   ▼
+OpenTelemetry Collector
+   │
+   ├── logs ────────► debug exporter
+   │
+   ├── traces ──────► debug exporter
+   │
+   └── metrics
+          │
+          ├─────────► debug exporter
+          │
+          ▼
+   Prometheus exporter
+        :8889
+          │
+          │ scrape
+          ▼
+      Prometheus
+          │
+          │ PromQL
+          ▼
+        Grafana
+```
+
+The current implementation intentionally keeps the stack small.
+
+Metrics have a real storage and query backend in Prometheus. Logs and
+traces are currently exported through the Collector's debug exporter and
+can be inspected in Collector logs.
+
+Dedicated trace and log backends can be introduced later without
+changing the application's OTLP integration.
+
+All observability components currently share the `observability`
+namespace. The namespace has its own lifecycle and is not owned by any
+individual observability component.
+
+### OpenTelemetry Collector
+
+The OpenTelemetry Collector receives OTLP over:
+
+``` text
+gRPC: 4317
+HTTP: 4318
+```
+
+Install the Collector:
+
+``` bash
+task otel:install
+```
+
+Show Collector status:
+
+``` bash
+task otel:status
+```
+
+Inspect recently received telemetry:
+
+``` bash
+kubectl \
+  --context kind-local \
+  --namespace observability \
+  logs deployment/otel-collector \
+  --since=2m
+```
+
+Follow telemetry live:
+
+``` bash
+kubectl \
+  --context kind-local \
+  --namespace observability \
+  logs deployment/otel-collector \
+  --follow
+```
+
+Delete the Collector:
+
+``` bash
+task otel:delete
+```
+
+The metrics pipeline also exposes Prometheus-compatible metrics on port
+`8889`.
+
+For troubleshooting, the endpoint can be inspected directly using a
+temporary port forward:
+
+``` bash
+kubectl \
+  --context kind-local \
+  --namespace observability \
+  port-forward service/otel-collector 8889:8889
+```
+
+Then:
+
+``` bash
+curl --silent http://localhost:8889/metrics
+```
+
+### Prometheus
+
+Prometheus provides metrics storage and PromQL querying.
+
+It scrapes the OpenTelemetry Collector's Prometheus exporter rather than
+scraping application workloads directly:
+
+``` text
+otel-collector.observability.svc:8889
+```
+
+Install Prometheus:
+
+``` bash
+task prometheus:install
+```
+
+Show Prometheus status:
+
+``` bash
+task prometheus:status
+```
+
+Delete Prometheus:
+
+``` bash
+task prometheus:delete
+```
+
+For local exploration, expose the UI temporarily:
+
+``` bash
+kubectl \
+  --context kind-local \
+  --namespace observability \
+  port-forward service/prometheus 9090:9090
+```
+
+The UI is then available at:
+
+``` text
+http://localhost:9090
+```
+
+Example application metrics include:
+
+``` text
+http_server_requests_milliseconds_count
+jvm_classes_loaded
+```
+
+Prometheus currently uses disposable local storage. Persistence and
+retention are intentionally deferred until they solve a concrete
+development need.
+
+### Grafana
+
+Grafana provides the initial observability user interface.
+
+Prometheus is provisioned declaratively as Grafana's default datasource:
+
+``` text
+http://prometheus.observability.svc:9090
+```
+
+No manual datasource setup should be required after a clean platform
+bootstrap.
+
+Install Grafana:
+
+``` bash
+task grafana:install
+```
+
+Show Grafana status:
+
+``` bash
+task grafana:status
+```
+
+Delete Grafana:
+
+``` bash
+task grafana:delete
+```
+
+Expose Grafana temporarily to the developer host:
+
+``` bash
+kubectl \
+  --context kind-local \
+  --namespace observability \
+  port-forward service/grafana 3000:3000
+```
+
+Grafana is then available at:
+
+``` text
+http://localhost:3000
+```
+
+The current focus is manual exploration and learning through PromQL and
+Grafana Explore.
+
+Dashboards will be added incrementally after useful queries and
+visualizations have first been understood and validated manually.
 
 ## Gateway API
 
@@ -802,19 +1095,89 @@ The current host ports are deliberately non-privileged ports. More
 transparent local access on ports 80 and 443 can be evaluated separately
 without changing the Gateway API routing model.
 
+### inotify exhaustion
+
+The Envoy data plane uses inotify and may fail during startup when the
+host's per-user inotify instance limit is exhausted.
+
+A typical symptom is an Envoy `CrashLoopBackOff` with an error similar
+to:
+
+``` text
+assert failure: inotify_fd_ >= 0
+Consider increasing value of fs.inotify.max_user_watches and/or
+fs.inotify.max_user_instances via sysctl
+```
+
+For this local rootless Podman and Kind environment, configure the host
+through:
+
+``` bash
+./inotify.sh install
+```
+
+See [Local Host Integration](#local-host-integration) for details.
+
 ## Local Host Integration
 
 The Kubernetes platform is intentionally isolated from permanent host
-configuration, but a small amount of optional host integration makes
-local development considerably more convenient.
+configuration, but a small amount of optional or required host
+integration makes local development considerably more reliable and
+convenient.
 
-There are two separate concerns:
+There are three separate concerns:
 
-1.  trust the local root CA on the Fedora host
-2.  resolve local Gateway hostnames to `127.0.0.1`
+1.  provide sufficient inotify resources for the rootless container
+    platform
+2.  trust the local root CA on the Fedora host
+3.  resolve local Gateway hostnames to `127.0.0.1`
 
 These operations are explicit and reversible. They are not hidden inside
 `task up` because they modify the developer host.
+
+### inotify limits
+
+The local platform runs multiple services through rootless Podman and
+Kind. As the platform grows, the Fedora host's default limit for
+per-user inotify instances may be too low.
+
+Envoy Gateway in particular requires an available inotify instance
+during data-plane startup. When the limit is exhausted, Envoy may enter
+`CrashLoopBackOff`.
+
+The platform currently recommends:
+
+``` text
+fs.inotify.max_user_instances = 1024
+```
+
+Inspect the current value:
+
+``` bash
+./inotify.sh status
+```
+
+Configure the recommended value:
+
+``` bash
+./inotify.sh install
+```
+
+The helper persists the host configuration under `/etc/sysctl.d/` and
+applies it immediately.
+
+Remove the repository-managed setting and reload the remaining host
+sysctl configuration:
+
+``` bash
+./inotify.sh remove
+```
+
+
+Only `fs.inotify.max_user_instances` is adjusted because that is the
+limit currently demonstrated to be relevant to this platform. The
+`fs.inotify.max_user_watches` limit is left unchanged until a concrete
+need requires otherwise.
 
 ### Certificate trust
 
@@ -934,12 +1297,30 @@ Kind extraPortMappings
 │   │       ├── gateway.yaml
 │   │       ├── kustomization.yaml
 │   │       └── ...
-│   └── kind/
-│       └── ...
+│   ├── grafana/
+│   │   ├── configmap-datasources.yaml
+│   │   ├── deployment.yaml
+│   │   ├── kustomization.yaml
+│   │   └── service.yaml
+│   ├── kind/
+│   │   └── ...
+│   ├── observability/
+│   │   └── namespace.yaml
+│   ├── otel/
+│   │   ├── configmap.yaml
+│   │   ├── deployment.yaml
+│   │   ├── kustomization.yaml
+│   │   └── service.yaml
+│   └── prometheus/
+│       ├── configmap.yaml
+│       ├── deployment.yaml
+│       ├── kustomization.yaml
+│       └── service.yaml
 ├── scripts/
 ├── Taskfile.yaml
 ├── dev.sh
 ├── hosts.sh
+├── inotify.sh
 ├── trust-ca.sh
 └── README.md
 ```
@@ -952,6 +1333,8 @@ The main entrypoints are deliberately few:
 -   `manifests/` contains declarative platform configuration owned by
     this repository.
 -   `hosts.sh` manages host-side local hostname resolution.
+-   `inotify.sh` manages the host-side inotify instance limit required
+    by the rootless local platform.
 -   `trust-ca.sh` manages host-side trust of the local development CA.
 -   `.devcontainer/` defines the repository development environment.
 -   `.local/` contains generated local state, including sensitive Sealed
@@ -980,9 +1363,12 @@ In particular:
 -   keep repository responsibilities explicit
 -   prefer open and portable technologies
 -   prefer standard APIs where practical
+-   use OpenTelemetry as the application-facing observability boundary
+-   keep observability backends replaceable behind that boundary
 -   never store plaintext workload secrets or private sealing keys in Git
 -   keep recovery-critical key material independent of disposable clusters
 -   evolve the platform incrementally
+-   validate small capabilities manually before automating them
 -   avoid abstractions before they solve a concrete problem
 
 `local-platform` owns the platform itself.
