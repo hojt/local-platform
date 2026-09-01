@@ -179,6 +179,21 @@ tasks:
     cmds:
       - ./scripts/prometheus-delete.sh
 
+  grafana:install:
+    desc: Install Grafana
+    cmds:
+      - ./scripts/grafana-install.sh
+
+  grafana:status:
+    desc: Show Grafana status
+    cmds:
+      - ./scripts/grafana-status.sh
+
+  grafana:delete:
+    desc: Delete Grafana
+    cmds:
+      - ./scripts/grafana-delete.sh
+
   otel:install:
     desc: Install OpenTelemetry Collector
     cmds:
@@ -215,6 +230,9 @@ tasks:
       - task: prometheus:install
       - task: prometheus:status
       # ---
+      - task: grafana:install
+      - task: grafana:status
+      # ---
       - task: otel:install
       - task: otel:status
       # ---
@@ -239,6 +257,7 @@ tasks:
       - task: sealed-secrets:delete
       - task: argocd:delete
       - task: otel:delete
+      - task: grafana:delete
       - task: prometheus:delete
       - task: observability:delete
       - task: cluster:delete
@@ -252,6 +271,7 @@ tasks:
       - task: sealed-secrets:status
       - task: observability:status
       - task: prometheus:status
+      - task: grafana:status
       - task: otel:status
       - task: argocd:status
       - task: cert-manager:status
