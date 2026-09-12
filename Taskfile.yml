@@ -1,6 +1,10 @@
 version: "3"
 
 tasks:
+  default:
+    cmds:
+      - task --list
+
   cluster:create:
     desc: Create the local kind cluster
     cmds:
