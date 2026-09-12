@@ -14,6 +14,33 @@ if [[ ! -f "${backup_file}" ]]; then
   exit 0
 fi
 
+if ! kubectl \
+  --context "${KUBE_CONTEXT}" \
+  get --raw=/readyz \
+  >/dev/null 2>&1; then
+  echo "Kubernetes API is unavailable; cannot restore Sealed Secrets keys" >&2
+  exit 1
+fi
+
+key_count="$(
+  kubectl \
+    --context "${KUBE_CONTEXT}" \
+    --namespace "${SEALED_SECRETS_NAMESPACE}" \
+    get secrets \
+    --selector sealedsecrets.bitnami.com/sealed-secrets-key \
+    --output name |
+    wc -l
+)"
+
+# Restore runs before the Sealed Secrets controller is installed.
+# A fresh cluster therefore has no sealing keys at this point.
+# Existing keys mean that an existing cluster has been restarted and
+# its key material should be left untouched.
+if [[ "${key_count}" -gt 0 ]]; then
+  echo "Sealed Secrets keys already exist; skipping restore"
+  exit 0
+fi
+
 echo "Restoring Sealed Secrets keys"
 
 kubectl \
