@@ -12,7 +12,7 @@ Current platform capabilities include:
 -   containerized development environment
 -   Kubernetes cluster
 -   local container registry
--   GitOps
+-   GitOps engine
 -   HTTP and HTTPS routing through Gateway API
 -   TLS certificate management
 -   encrypted GitOps secret management
@@ -175,8 +175,8 @@ task otel:status
 The desired state of workloads is maintained separately in
 `local-environments`.
 
-After the platform is running, bootstrap the Argo CD applications from
-that repository:
+After the platform lifecycle has installed Argo CD, register the desired-state
+applications from that repository:
 
 ``` bash
 task argocd:bootstrap
@@ -587,9 +587,10 @@ task argocd:delete
 Application definitions and environment state are intentionally not
 maintained in this repository.
 
-The initial Argo CD applications are bootstrapped from
-`local-environments`. After that bootstrap, normal workload changes are
-performed through Git and reconciled by Argo CD.
+The initial Argo CD application definitions are owned by
+`local-environments` and registered after the platform lifecycle has installed
+Argo CD. After that registration, normal workload changes are performed through
+Git and reconciled by Argo CD.
 
 ## Certificate Management
 
@@ -1317,7 +1318,7 @@ Kind extraPortMappings
 │       ├── kustomization.yaml
 │       └── service.yaml
 ├── scripts/
-├── Taskfile.yaml
+├── Taskfile.yml
 ├── dev.sh
 ├── hosts.sh
 ├── inotify.sh
@@ -1328,7 +1329,7 @@ Kind extraPortMappings
 The main entrypoints are deliberately few:
 
 -   `dev.sh` manages the developer environment.
--   `Taskfile.yaml` exposes the operator-facing commands.
+-   `Taskfile.yml` exposes the operator-facing commands.
 -   `scripts/` contains reusable and non-trivial platform automation.
 -   `manifests/` contains declarative platform configuration owned by
     this repository.
