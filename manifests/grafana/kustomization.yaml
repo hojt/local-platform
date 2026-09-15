@@ -4,4 +4,5 @@ kind: Kustomization
 resources:
   - configmap-datasources.yaml
   - deployment.yaml
+  - httproute.yaml
   - service.yaml

@@ -31,3 +31,18 @@ spec:
       allowedRoutes:
         namespaces:
           from: Same
+    - name: https-grafana
+      hostname: grafana.local
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: grafana-local-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
