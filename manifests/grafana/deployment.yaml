@@ -28,6 +28,10 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources/prometheus.yaml
               subPath: prometheus.yaml
               readOnly: true
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources/tempo.yaml
+              subPath: tempo.yaml
+              readOnly: true
       volumes:
         - name: datasources
           configMap:

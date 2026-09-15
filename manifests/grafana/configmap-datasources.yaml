@@ -13,3 +13,12 @@ data:
         access: proxy
         url: http://prometheus.observability.svc:9090
         isDefault: true
+  tempo.yaml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.observability.svc:3200
