@@ -33,6 +33,7 @@ Current implementations include:
 -   Sealed Secrets for encrypted GitOps secrets
 -   OpenTelemetry Collector for telemetry ingestion and processing
 -   Prometheus for metrics storage and querying
+-   Tempo for trace storage and querying
 -   Grafana for observability exploration and visualization
 
 Future platform capabilities may include:
@@ -40,7 +41,6 @@ Future platform capabilities may include:
 -   CI pipelines
 -   more complete local LoadBalancer integration
 -   persistent observability storage
--   a dedicated trace backend
 -   a dedicated log backend
 -   richer dashboards and alerting
 
@@ -139,10 +139,11 @@ Local Container Registry
           ├───────────────┬────────────────┬────────────────┐
           ▼               ▼                ▼                ▼
      Sealed Secrets   Observability      Argo CD       Gateway/TLS
-                          │                              │
-                          ├── Prometheus                 ├── Envoy Gateway
-                          ├── Grafana                    └── cert-manager
-                          └── OTel Collector
+                           │                              │
+                           ├── Prometheus                 ├── Envoy Gateway
+                           ├── Tempo                      └── cert-manager
+                           ├── Grafana
+                           └── OTel Collector
                                   │
                                   ▼
                               Telemetry
@@ -168,6 +169,7 @@ task cert-manager:status
 task sealed-secrets:status
 task observability:status
 task prometheus:status
+task tempo:status
 task grafana:status
 task otel:status
 ```
@@ -351,6 +353,7 @@ Sealed Secrets controller
 observability namespace
    │
    ├── Prometheus
+   ├── Tempo
    ├── Grafana
    └── OpenTelemetry Collector
    │
@@ -368,10 +371,12 @@ Gateway configuration
 ```
 
 Observability starts early so platform and workload telemetry can be
-received as soon as producers become available.
+received as soon as producers become available. Its startup and status
+order is `observability` -> Prometheus -> Tempo -> Grafana -> OpenTelemetry
+Collector.
 
 During shutdown the producer-facing OpenTelemetry Collector is removed
-late, followed by Grafana, Prometheus, and finally the shared
+late, followed by Grafana, Tempo, Prometheus, and finally the shared
 `observability` namespace.
 
 The Kind cluster is created with fixed host-to-node port mappings for
@@ -771,6 +776,13 @@ OpenTelemetry Collector
    ├── logs ────────► debug exporter
    │
    ├── traces ──────► debug exporter
+   │       │
+   │       └────────► Tempo
+   │                   :4317 OTLP/gRPC
+   │                   :3200 query API
+   │                         │
+   │                         ▼
+   │                      Grafana
    │
    └── metrics
           │
@@ -789,14 +801,11 @@ OpenTelemetry Collector
         Grafana
 ```
 
-The current implementation intentionally keeps the stack small.
-
-Metrics have a real storage and query backend in Prometheus. Logs and
-traces are currently exported through the Collector's debug exporter and
-can be inspected in Collector logs.
-
-Dedicated trace and log backends can be introduced later without
-changing the application's OTLP integration.
+The current implementation intentionally keeps the stack small. Metrics have
+a storage and query backend in Prometheus. Traces are exported to both the
+detailed Collector debug exporter and Tempo using OTLP/gRPC. Logs remain
+exported only through the debug exporter, and the metrics and logs pipelines
+are otherwise unchanged.
 
 All observability components currently share the `observability`
 namespace. The namespace has its own lifecycle and is not owned by any
@@ -868,6 +877,17 @@ Then:
 curl --silent http://localhost:8889/metrics
 ```
 
+The verified application trace flow is:
+
+``` text
+browser frontend span
+    -> W3C trace context
+    -> Quarkus backend span
+    -> OpenTelemetry Collector
+    -> Tempo
+    -> Grafana Explore
+```
+
 ### Prometheus
 
 Prometheus provides metrics storage and PromQL querying.
@@ -923,6 +943,45 @@ Prometheus currently uses disposable local storage. Persistence and
 retention are intentionally deferred until they solve a concrete
 development need.
 
+### Tempo
+
+Tempo provides the local tracing backend. It runs in monolithic,
+single-binary mode and receives OTLP/gRPC internally on port `4317`.
+Its query API is available only inside the cluster on port `3200`; Tempo is
+not exposed outside the cluster.
+
+Tempo uses local ephemeral storage through an `emptyDir` mounted at
+`/var/tempo`:
+
+``` text
+WAL:          /var/tempo/wal
+trace blocks: /var/tempo/blocks
+```
+
+Trace data is lost when the Tempo pod is recreated.
+
+Install Tempo:
+
+``` bash
+task tempo:install
+```
+
+Show Tempo status:
+
+``` bash
+task tempo:status
+```
+
+Delete Tempo:
+
+``` bash
+task tempo:delete
+```
+
+Persistent trace storage, object storage, the metrics generator, span
+metrics, service graphs, exemplars, and deeper Prometheus/Tempo correlation
+remain deferred until a concrete need is demonstrated.
+
 ### Grafana
 
 Grafana provides the initial observability user interface.
@@ -931,6 +990,12 @@ Prometheus is provisioned declaratively as Grafana's default datasource:
 
 ``` text
 http://prometheus.observability.svc:9090
+```
+
+Tempo is provisioned declaratively as Grafana's tracing datasource:
+
+``` text
+http://tempo.observability.svc:3200
 ```
 
 No manual datasource setup should be required after a clean platform
@@ -969,8 +1034,10 @@ Grafana is then available at:
 http://localhost:3000
 ```
 
-The current focus is manual exploration and learning through PromQL and
-Grafana Explore.
+Grafana remains available to the developer host through the temporary
+`kubectl port-forward` above. The current focus is manual exploration and
+learning through PromQL and Grafana Explore; traces can be inspected in
+Explore by trace ID.
 
 Dashboards will be added incrementally after useful queries and
 visualizations have first been understood and validated manually.
@@ -1312,7 +1379,12 @@ Kind extraPortMappings
 │   │   ├── deployment.yaml
 │   │   ├── kustomization.yaml
 │   │   └── service.yaml
-│   └── prometheus/
+│   ├── prometheus/
+│   │   ├── configmap.yaml
+│   │   ├── deployment.yaml
+│   │   ├── kustomization.yaml
+│   │   └── service.yaml
+│   └── tempo/
 │       ├── configmap.yaml
 │       ├── deployment.yaml
 │       ├── kustomization.yaml
