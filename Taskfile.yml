@@ -183,6 +183,21 @@ tasks:
     cmds:
       - ./scripts/prometheus-delete.sh
 
+  tempo:install:
+    desc: Install Tempo
+    cmds:
+      - ./scripts/tempo-install.sh
+
+  tempo:status:
+    desc: Show Tempo status
+    cmds:
+      - ./scripts/tempo-status.sh
+
+  tempo:delete:
+    desc: Delete Tempo
+    cmds:
+      - ./scripts/tempo-delete.sh
+
   grafana:install:
     desc: Install Grafana
     cmds:
@@ -234,6 +249,9 @@ tasks:
       - task: prometheus:install
       - task: prometheus:status
       # ---
+      - task: tempo:install
+      - task: tempo:status
+      # ---
       - task: grafana:install
       - task: grafana:status
       # ---
@@ -262,6 +280,7 @@ tasks:
       - task: argocd:delete
       - task: otel:delete
       - task: grafana:delete
+      - task: tempo:delete
       - task: prometheus:delete
       - task: observability:delete
       - task: cluster:delete
@@ -275,6 +294,7 @@ tasks:
       - task: sealed-secrets:status
       - task: observability:status
       - task: prometheus:status
+      - task: tempo:status
       - task: grafana:status
       - task: otel:status
       - task: argocd:status
