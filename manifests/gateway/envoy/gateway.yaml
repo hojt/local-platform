@@ -46,3 +46,18 @@ spec:
           selector:
             matchLabels:
               kubernetes.io/metadata.name: observability
+    - name: https-argocd
+      hostname: argocd.local
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: argocd-local-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd

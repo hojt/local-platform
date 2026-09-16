@@ -58,6 +58,11 @@ tasks:
     cmds:
       - ./scripts/argocd-install.sh
 
+  argocd:configure:
+    desc: Configure Argo CD
+    cmds:
+      - ./scripts/argocd-configure.sh
+
   argocd:delete:
     desc: Delete Argo CD
     cmds:
@@ -259,6 +264,7 @@ tasks:
       - task: otel:status
       # ---
       - task: argocd:install
+      - task: argocd:configure
       - task: argocd:status
       # ---
       - task: envoy:install

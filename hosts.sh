@@ -5,6 +5,7 @@ set -euo pipefail
 hostnames=(
   "example.local"
   "grafana.local"
+  "argocd.local"
 )
 address="127.0.0.1"
 hosts_file="/etc/hosts"
