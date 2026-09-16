@@ -200,7 +200,16 @@ Configure the remaining host-side integration:
 ./hosts.sh install
 ```
 
-The example backend can then be reached over HTTP:
+All three local hostnames resolve to `127.0.0.1`. With the local CA trusted,
+the standard HTTPS entry points are:
+
+``` text
+https://example.local:8443
+https://grafana.local:8443
+https://argocd.local:8443
+```
+
+The example backend can also be reached over HTTP:
 
 ``` bash
 curl http://example.local:8080/api/greeting
@@ -358,7 +367,7 @@ observability namespace
    └── OpenTelemetry Collector
    │
    ▼
-Argo CD
+Argo CD install -> configure -> status
    │
    ▼
 Envoy Gateway
@@ -559,15 +568,16 @@ evaluated alongside or instead of Argo CD in the future.
 
 ### Argo CD
 
-Install Argo CD:
+Argo CD is available through the shared Gateway at
+`https://argocd.local:8443`. Browser traffic is protected by TLS terminated at
+Envoy. `server.insecure=true` applies only to the internal Envoy-to-
+`argocd-server` hop.
+
+The platform lifecycle configures Argo CD in order:
 
 ``` bash
 task argocd:install
-```
-
-Show its current status:
-
-``` bash
+task argocd:configure
 task argocd:status
 ```
 
@@ -999,7 +1009,9 @@ http://tempo.observability.svc:3200
 ```
 
 No manual datasource setup should be required after a clean platform
-bootstrap.
+bootstrap. Grafana is available through the shared Gateway at
+`https://grafana.local:8443` and has declaratively provisioned Prometheus and
+Tempo datasources.
 
 Install Grafana:
 
@@ -1019,25 +1031,10 @@ Delete Grafana:
 task grafana:delete
 ```
 
-Expose Grafana temporarily to the developer host:
-
-``` bash
-kubectl \
-  --context kind-local \
-  --namespace observability \
-  port-forward service/grafana 3000:3000
-```
-
-Grafana is then available at:
-
-``` text
-http://localhost:3000
-```
-
-Grafana remains available to the developer host through the temporary
-`kubectl port-forward` above. The current focus is manual exploration and
-learning through PromQL and Grafana Explore; traces can be inspected in
-Explore by trace ID.
+The current focus is manual exploration and learning through PromQL and
+Grafana Explore; traces can be inspected in Explore by trace ID. A temporary
+port-forward remains available for troubleshooting but is not the normal access
+path.
 
 Dashboards will be added incrementally after useful queries and
 visualizations have first been understood and validated manually.
@@ -1061,6 +1058,16 @@ Envoy Gateway is the initial Gateway API implementation.
 Workload-specific routing is owned by `local-environments` and expressed
 using standard Gateway API resources such as `HTTPRoute`.
 
+The shared Envoy Gateway terminates TLS for all three local HTTPS hostnames.
+Route attachment is restricted per listener:
+
+-   `example.local` accepts routes from the `default` namespace
+-   `grafana.local` accepts routes from the `observability` namespace
+-   `argocd.local` accepts routes from the `argocd` namespace
+
+The Grafana and Argo CD routes are platform-owned routes. Workload routes,
+including `example.local`, remain owned by `local-environments`.
+
 The responsibility boundary is:
 
 ``` text
@@ -1069,12 +1076,13 @@ local-platform
         ├── Envoy Gateway controller
         ├── GatewayClass
         ├── Gateway
+        ├── Grafana and Argo CD HTTPRoutes
         └── local Gateway exposure
                  │
                  ▼
 local-environments
         │
-        └── HTTPRoute
+        └── workload HTTPRoute
                  │
                  ▼
               Service
@@ -1276,8 +1284,8 @@ remains an explicit developer-machine operation.
 
 ### Hostname resolution
 
-`hosts.sh` manages the local `/etc/hosts` entry used by the example
-Gateway hostname.
+`hosts.sh install` and `hosts.sh remove` idempotently manage the local
+`/etc/hosts` entries for all Gateway hostnames.
 
 Install the mapping:
 
@@ -1289,6 +1297,8 @@ This maps:
 
 ``` text
 127.0.0.1 example.local
+127.0.0.1 grafana.local
+127.0.0.1 argocd.local
 ```
 
 Remove it again with:
@@ -1315,7 +1325,8 @@ curl https://example.local:8443/api/greeting
 ```
 
 No `-k`, `--resolve`, or long-running port-forward process is required
-for the normal HTTPS workflow.
+for normal Gateway access, including Grafana and Argo CD. A temporary
+port-forward remains an acceptable troubleshooting fallback.
 
 The resulting local request path is:
 
@@ -1354,6 +1365,10 @@ Kind extraPortMappings
 │   └── sealed-secrets/
 │       └── keys.yaml
 ├── manifests/
+│   ├── argocd/
+│   │   ├── cmd-params-configmap.yaml
+│   │   ├── httproute.yaml
+│   │   └── kustomization.yaml
 │   ├── cert-manager/
 │   │   ├── selfsigned/
 │   │   │   ├── clusterissuer.yaml
@@ -1368,6 +1383,7 @@ Kind extraPortMappings
 │   ├── grafana/
 │   │   ├── configmap-datasources.yaml
 │   │   ├── deployment.yaml
+│   │   ├── httproute.yaml
 │   │   ├── kustomization.yaml
 │   │   └── service.yaml
 │   ├── kind/
